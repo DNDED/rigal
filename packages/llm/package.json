@@ -1,0 +1,13 @@
+{
+  "name": "@rigal/llm",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@rigal/core": "workspace:*",
+    "effect": "^3.14.0"
+  },
+  "peerDependencies": {
+    "effect": "^3.14.0"
+  }
+}

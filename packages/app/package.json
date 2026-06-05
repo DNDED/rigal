@@ -1,0 +1,24 @@
+{
+  "name": "@rigal/app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@rigal/ui": "workspace:*",
+    "@solidjs/router": "^0.15.0",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "@solidjs/start": "^1.1.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.5.0",
+    "tailwindcss": "^4.0.0",
+    "vite": "^7.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}

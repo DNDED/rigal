@@ -1,0 +1,11 @@
+{
+  "name": "@rigal/integrations",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@rigal/core": "workspace:*",
+    "@rigal/llm": "workspace:*",
+    "effect": "^3.14.0"
+  }
+}

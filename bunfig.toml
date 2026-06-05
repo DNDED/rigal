@@ -1,0 +1,8 @@
+[install]
+exact = false
+frozen = false
+
+[install.scopes]
+"@rigal/core" = { workspace = true }
+"@rigal/llm" = { workspace = true }
+"@rigal/integrations" = { workspace = true }

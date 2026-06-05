@@ -1,0 +1,5 @@
+export { providerCommand } from "./provider.js"
+export { modelCommand } from "./model.js"
+export { oauthCommand } from "./oauth.js"
+export { renderSetupPrompt, processSetupSelection, renderApiKeyPrompt } from "./setup.js"
+export type { SetupResult } from "./setup.js"

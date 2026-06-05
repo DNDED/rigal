@@ -1,0 +1,29 @@
+{
+  "name": "rigal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RIGAL — The universal AI coding harness. Any model, any provider, any platform.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd packages/rigal dev",
+    "build": "bun run packages/core/build.ts && bun run packages/llm/build.ts && bun run packages/integrations/build.ts && bun run packages/rigal/build.ts",
+    "typecheck": "bun --eval \"import './packages/core/tsconfig.json'; import './packages/llm/tsconfig.json'; import './packages/rigal/tsconfig.json'\" 2>/dev/null; bun x tsc --noEmit -p packages/core/tsconfig.json && bun x tsc --noEmit -p packages/llm/tsconfig.json && bun x tsc --noEmit -p packages/rigal/tsconfig.json",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "lint": "bun x oxlint",
+    "format": "bun x prettier --write .",
+    "integrations:generate": "bun run packages/integrations/script/generate.ts",
+    "clean": "rm -rf packages/*/dist"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "oxlint": "^0.18.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}

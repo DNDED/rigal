@@ -1,0 +1,12 @@
+{
+  "name": "@rigal/core",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "effect": "^3.14.0"
+  },
+  "peerDependencies": {
+    "effect": "^3.14.0"
+  }
+}
