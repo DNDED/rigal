@@ -130,23 +130,23 @@ npm i -g rigal
 
 ### curl (standalone binary)
 ```bash
-curl -fsSL https://rigal.dev/install | bash
+curl -fsSL https://raw.githubusercontent.com/DNDED/rigal/master/scripts/install.sh | bash
 ```
 
 ### Homebrew
 ```bash
-brew install rigal-ai/tap/rigal
+brew install dnded/rigal/rigal
 ```
 
 ### Scoop (Windows)
 ```powershell
-scoop bucket add rigal https://github.com/rigal-ai/scoop-rigal
+scoop bucket add rigal https://github.com/DNDED/scoop-rigal
 scoop install rigal
 ```
 
 ### From source
 ```bash
-git clone https://github.com/rigal-ai/rigal.git
+git clone https://github.com/DNDED/rigal.git
 cd rigal
 bun install
 bun run build
@@ -169,7 +169,7 @@ npm link
 ## Building From Source
 
 ```bash
-git clone https://github.com/rigal-ai/rigal.git
+git clone https://github.com/DNDED/rigal.git
 cd rigal
 bun install
 bun run build          # Build for npm
