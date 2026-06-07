@@ -1,3 +1,4 @@
+---
 mode: subagent
 hidden: true
 tools:

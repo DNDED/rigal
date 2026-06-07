@@ -1,5 +1,29 @@
+export const brandGradient = [
+  "#4338ca",
+  "#6366f1",
+  "#818cf8",
+  "#a5b4fc",
+  "#c4b5fd",
+  "#a78bfa",
+  "#7c3aed",
+  "#6d28d9",
+]
+
+export const surfaceGradient = ["#05050a", "#0a0a14", "#10101d"]
+
+export const statusColors = {
+  idle: "#6e6e82",
+  streaming: "#818cf8",
+  error: "#fb7185",
+  success: "#34d399",
+  warning: "#fbbf24",
+}
+
+export const cardBorder = "#1e1e30"
+
 export const theme = {
   colors: {
+    cardBorder: "#1e1e30" as string,
     bg: "#05050a",
     surface: "#0a0a14",
     surfaceRaised: "#10101d",
@@ -20,6 +44,11 @@ export const theme = {
     textDim: "#8e8ea4",
     textMuted: "#6e6e82",
     textBright: "#f0f0f8",
+    statusIdle: statusColors.idle,
+    statusStreaming: statusColors.streaming,
+    statusError: statusColors.error,
+    statusSuccess: statusColors.success,
+    statusWarning: statusColors.warning,
     textWhite: "#ffffff",
     success: "#34d399",
     successDim: "rgba(52, 211, 153, 0.14)",
@@ -116,6 +145,7 @@ export const theme = {
 } as const
 
 export function gradient(start: string, end: string, steps: number): string[] {
+  if (steps <= 1) return [start]
   const sr = parseInt(start.slice(1, 3), 16)
   const sg = parseInt(start.slice(3, 5), 16)
   const sb = parseInt(start.slice(5, 7), 16)

@@ -1,7 +1,6 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
-export function rewindCommand(engine: ArgentEngine): string {
+export function rewindCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []
 
   lines.push("")
@@ -21,18 +20,30 @@ export function rewindCommand(engine: ArgentEngine): string {
     return lines.join("\n")
   }
 
-  const messages = session.messages
-  const checkpoints: Array<{ index: number; type: string; preview: string }> = []
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i]
-    if (!msg) continue
-    if (msg.role === "user") {
-      const text = msg.content?.[0]?.text ?? "(no text)"
-      const preview = text.length > 50 ? text.slice(0, 47) + "..." : text
-      checkpoints.push({ index: i, type: "user", preview })
+  const arg = args[0]
+  if (arg !== undefined && /^\d+$/.test(arg)) {
+    const checkpointNum = parseInt(arg, 10)
+    const checkpoints = findCheckpoints(session.messages)
+    const cp = checkpoints[checkpointNum - 1]
+    if (!cp) {
+      lines.push(`  Checkpoint ${checkpointNum} not found.`)
+      lines.push(`  Available: 1–${checkpoints.length}`)
+      return lines.join("\n")
     }
+
+    const originalCount = session.messages.length
+    const ok = engine.rewindToCheckpoint(cp.index)
+    if (ok) {
+      lines.push(`  ● Rewound to checkpoint ${checkpointNum}`)
+      lines.push(`  "${cp.preview}"`)
+      lines.push(`  Messages truncated from ${originalCount} to ${cp.index}`)
+    } else {
+      lines.push("  ● Could not rewind to that checkpoint.")
+    }
+    return lines.join("\n")
   }
+
+  const checkpoints = findCheckpoints(session.messages)
 
   if (checkpoints.length === 0) {
     lines.push("  No checkpoints available in this session.")
@@ -46,7 +57,7 @@ export function rewindCommand(engine: ArgentEngine): string {
   lines.push(`  ├${"─".repeat(62)}┤`)
 
   for (const cp of checkpoints) {
-    const num = String(cp.index + 1).padStart(3, " ")
+    const num = String(cp.num).padStart(3, " ")
     const type = cp.type.padEnd(8, " ")
     const preview = cp.preview.padEnd(42, " ").slice(0, 42)
     lines.push(`  │ ${num}  ${type} ${preview} │`)
@@ -55,11 +66,24 @@ export function rewindCommand(engine: ArgentEngine): string {
   lines.push(`  └${"─".repeat(62)}┘`)
   lines.push("")
   lines.push("  Use /rewind <number> to jump to a checkpoint.")
-  lines.push("  ─────────────────────────────────────────────")
-  lines.push("  Options:")
-  lines.push("    code         Revert code changes only")
-  lines.push("    conversation Revert conversation only")
-  lines.push("    both         Revert both (default)")
 
   return lines.join("\n")
+}
+
+function findCheckpoints(messages: import("@argent/core").Message[]): Array<{ num: number; index: number; type: string; preview: string }> {
+  const result: Array<{ num: number; index: number; type: string; preview: string }> = []
+  let num = 0
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (!msg) continue
+    if (msg.role === "user") {
+      num++
+      const text = msg.content?.[0]?.text ?? "(no text)"
+      const preview = text.length > 50 ? text.slice(0, 47) + "..." : text
+      result.push({ num, index: i, type: "user", preview })
+    }
+  }
+
+  return result
 }

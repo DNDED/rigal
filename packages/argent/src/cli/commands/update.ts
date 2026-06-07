@@ -1,10 +1,10 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
 import { existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { dirname, join, resolve } from "path"
+import { fileURLToPath } from "url"
 
-export function updateCommand(engine: ArgentEngine): string {
+export function updateCommand(_engine: ArgentEngine): string {
   const lines: string[] = []
 
   lines.push("")
@@ -16,42 +16,18 @@ export function updateCommand(engine: ArgentEngine): string {
   let currentVersion = "unknown"
   let latestVersion = ""
 
-  const wd = engine.config.getWorkingDir()
-  const pkgPath = join(wd, "package.json")
-  const lookupPaths = [join(wd, "package.json"), "/home/trader/argent/package.json"]
-
-  for (const p of lookupPaths) {
-    if (existsSync(p)) {
-      try {
-        const pkg = JSON.parse(readFileSync(p, "utf-8"))
-        if (pkg.version) {
-          currentVersion = pkg.version
-          break
-        }
-      } catch {
-        // continue
-      }
-    }
-  }
+  currentVersion = findCurrentVersion()
 
   lines.push(`  Current version: ${currentVersion}`)
 
   try {
-    const result = execSync("npm view argent version 2>&1", {
+    const result = execSync("npm view argent version", {
       encoding: "utf-8",
       timeout: 15000,
     })
     latestVersion = result.trim()
   } catch {
-    try {
-      const registryResult = execSync(
-        "curl -s https://registry.npmjs.org/argent/latest 2>/dev/null | node -e \"process.stdin.on('data',d=>{try{console.log(JSON.parse(d).version)}catch(e){}})\" 2>/dev/null || true",
-        { encoding: "utf-8", timeout: 15000 }
-      )
-      latestVersion = registryResult.trim()
-    } catch {
-      latestVersion = ""
-    }
+    latestVersion = ""
   }
 
   if (latestVersion) {
@@ -74,6 +50,43 @@ export function updateCommand(engine: ArgentEngine): string {
   }
 
   return lines.join("\n")
+}
+
+function findCurrentVersion(): string {
+  const searchRoots = [
+    dirname(fileURLToPath(import.meta.url)),
+    process.argv[1] ? dirname(resolve(process.argv[1])) : undefined,
+    process.cwd(),
+  ].filter((value): value is string => Boolean(value))
+
+  for (const root of searchRoots) {
+    const version = findVersionInAncestors(root)
+    if (version) return version
+  }
+
+  return "unknown"
+}
+
+function findVersionInAncestors(startDir: string): string | null {
+  let dir = resolve(startDir)
+
+  while (true) {
+    const pkgPath = join(dir, "package.json")
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { name?: string; version?: string }
+        if (pkg.name === "argent" && pkg.version) {
+          return pkg.version
+        }
+      } catch {
+        // keep searching upward
+      }
+    }
+
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
 }
 
 function compareVersions(a: string, b: string): number {

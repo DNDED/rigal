@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { Box, Text, useInput, useApp, useStdout } from "ink"
 import { ArgentEngine, type UIEvent } from "./engine.js"
 import { CommandHandler } from "./commands.js"
@@ -12,6 +12,7 @@ import { SetupWizard } from "../ui/components/SetupWizard.js"
 import { CommandPalette } from "../ui/components/CommandPalette.js"
 import { theme } from "../ui/theme.js"
 import type { Message, ToolCall } from "@argent/core"
+import type { SwarmTask } from "./swarm.js"
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-20250514": { input: 3, output: 15 },
@@ -40,7 +41,7 @@ function estimateCost(model: string, tokensIn: number, tokensOut: number): numbe
 type AppState = "setup" | "ready"
 
 export function App() {
-  const { exit } = useApp()
+  useApp()
   const { stdout } = useStdout()
   const [appState, setAppState] = useState<AppState>("setup")
   const [ready, setReady] = useState(false)
@@ -52,7 +53,7 @@ export function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [agentName, setAgentName] = useState("build")
   const [agentColor, setAgentColor] = useState<string>(theme.colors.accent)
-  const [agentNames, setAgentNames] = useState<string[]>(["build", "plan", "explore"])
+  const [agentNames, setAgentNames] = useState<string[]>(["build", "plan"])
   const [provider, setProvider] = useState("none")
   const [model, setModel] = useState("none")
   const [tokensIn, setTokensIn] = useState(0)
@@ -63,24 +64,40 @@ export function App() {
   const [cost, setCost] = useState(0)
   const [permissionReq, setPermissionReq] = useState<{ toolName: string; reason: string } | null>(null)
   const [statusMessage, setStatusMessage] = useState("")
-  const [workingDir, setWorkingDir] = useState(process.cwd())
+  const [workingDir, setWorkingDir] = useState(() => { try { return process.cwd() } catch { return require("os").tmpdir() } })
   const [errors, setErrors] = useState<string[]>([])
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCall[]>([])
+  const [swarmTasks, setSwarmTasks] = useState<SwarmTask[]>([])
+
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const engineRef = useRef<ArgentEngine | null>(null)
 
   const terminalWidth = stdout?.columns ?? 80
+  const terminalHeight = stdout?.rows ?? 40
   const contentMaxWidth = Math.min(terminalWidth - 4, 100)
   const horizontalPadding = Math.max(0, Math.floor((terminalWidth - contentMaxWidth) / 2))
 
   useEffect(() => {
-    const eng = new ArgentEngine(process.cwd())
+    let cwd: string
+    try { cwd = process.cwd() } catch { cwd = require("os").tmpdir() }
+    const eng = new ArgentEngine(cwd)
     const cmd = new CommandHandler(eng)
 
     eng.setEventEmitter((event: UIEvent) => {
       switch (event.type) {
         case "message":
-          setMessages((prev) => [...prev, event.message])
+          setMessages((prev) => { const next = [...prev, event.message]; return next.length > 500 ? next.slice(-500) : next })
+          break
+        case "messages_reset":
+          setMessages(event.messages)
+          setStreamingText("")
+          setStreamingToolCalls([])
+          setErrors([])
+          setPermissionReq(null)
+          setIsStreaming(false)
+          setIsProcessing(false)
           break
         case "stream_start":
           setStreamingText("")
@@ -91,7 +108,7 @@ export function App() {
           setIsProcessing(true)
           break
         case "stream_delta":
-          setStreamingText((prev) => prev + event.text)
+          setStreamingText((prev) => prev.length > 20000 ? prev : prev + event.text)
           setStreamTokensOut((prev) => prev + Math.ceil(event.text.length / 4))
           break
         case "stream_stop":
@@ -103,20 +120,24 @@ export function App() {
           }
           break
         case "tool_call":
-          setStreamingToolCalls((prev) => [...prev, event.toolCall])
+          setStreamingToolCalls((prev) => prev.length < 100 ? [...prev, event.toolCall] : prev)
           break
         case "tool_result":
           setStreamingToolCalls((prev) => prev.filter((tc) => tc.id !== event.toolCallId))
           break
         case "permission_needed":
+          if (permissionReq) {
+            eng.resolveDeny()
+          }
           setPermissionReq({ toolName: event.toolName, reason: event.reason })
           break
         case "permission_denied":
           setStatusMessage(`Permission denied: ${event.toolName}`)
-          setTimeout(() => setStatusMessage(""), 3000)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 3000)
           break
         case "error":
-          setErrors((prev) => [...prev, event.message])
+          setErrors((prev) => { const next = [...prev, event.message]; return next.length > 50 ? next.slice(-50) : next })
           setIsProcessing(false)
           setIsStreaming(false)
           break
@@ -124,6 +145,24 @@ export function App() {
           setTokensIn(event.tokensIn)
           setTokensOut(event.tokensOut)
           setLatency(event.latency)
+          break
+        case "info":
+          setStatusMessage(event.message)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 4000)
+          break
+        case "swarm_updated":
+          setSwarmTasks([...event.tasks].sort((a, b) => {
+            const order: Record<SwarmTask["status"], number> = { running: 0, pending: 1, completed: 2, failed: 3, cancelled: 4 }
+            return (order[a.status] ?? 5) - (order[b.status] ?? 5)
+          }))
+          break
+        case "doom_loop_warning":
+          setStatusMessage(event.message)
+          setIsProcessing(false)
+          setIsStreaming(false)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 5000)
           break
       }
     })
@@ -135,6 +174,7 @@ export function App() {
     setWorkingDir(eng.config.getWorkingDir())
 
     setEngine(eng)
+    engineRef.current = eng
     setCommands(cmd)
     setReady(true)
 
@@ -143,7 +183,15 @@ export function App() {
     } else {
       setAppState("setup")
     }
+
+    return () => {
+      eng.onEvent = () => {}
+      eng.sessions.dispose()
+      if (eng.swarm) { eng.swarm.onTaskUpdate = null; eng.swarm.cancelAll() }
+    }
   }, [])
+
+  useEffect(() => () => { if (statusTimerRef.current) clearTimeout(statusTimerRef.current) }, [])
 
   useEffect(() => {
     const totalIn = tokensIn + streamTokensIn
@@ -159,9 +207,26 @@ export function App() {
         const info = engine.getProviderInfo()
         setProvider(info.name)
         setModel(info.model)
-        setAppState("ready")
-        setStatusMessage(`Provider set to ${info.name}`)
-        setTimeout(() => setStatusMessage(""), 3000)
+        if (engine.hasProvider()) {
+          setAppState("ready")
+          setStatusMessage(`Provider set to ${info.name}`)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 3000)
+        } else {
+          const desc = engine.getCurrentProviderDescriptor()
+          if (desc?.authType === "oauth") {
+            setStatusMessage(`OAuth authentication required. Use /oauth ${providerId} to authenticate.`)
+            if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+            statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 6000)
+            setAppState("ready")
+          } else {
+            setAppState("setup")
+          }
+        }
+      } else {
+        setStatusMessage(`Failed to set provider ${providerId}`)
+        if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+        statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 3000)
       }
     },
     [engine]
@@ -173,10 +238,14 @@ export function App() {
 
       setErrors([])
       setStatusMessage("")
-      setCommandHistory((prev) => [...prev, text])
+      setCommandHistory((prev) => [...prev.slice(-499), text])
 
       const result = commands.handle(text)
       if (result.handled) {
+        if (result.message === "PALETTE_OPEN") {
+          setCommandPaletteOpen(true)
+          return
+        }
         if (result.message === "SETUP_WIZARD") {
           setAppState("setup")
           return
@@ -186,9 +255,31 @@ export function App() {
           handleSetupComplete(providerId)
           return
         }
+        if (result.message?.startsWith("CUSTOM_COMMAND:")) {
+          const cmdName = result.message.slice("CUSTOM_COMMAND:".length)
+          const cmd = engine.config.getCommand(cmdName)
+          if (cmd && cmd.instruction) {
+            setStreamingText("")
+            if (isProcessing) return
+            engine.sendMessage(cmd.instruction)
+            return
+          }
+          setStatusMessage(`Command /${cmdName} has no instructions.`)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 4000)
+          return
+        }
+        if (result.message?.startsWith("REVIEW_DIFF:")) {
+          const reviewPrompt = result.message.slice("REVIEW_DIFF:".length)
+          setStreamingText("")
+          if (isProcessing) return
+          engine.sendMessage(reviewPrompt)
+          return
+        }
         if (result.message) {
           setStatusMessage(result.message)
-          setTimeout(() => setStatusMessage(""), 4000)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 4000)
         }
         return
       }
@@ -211,30 +302,11 @@ export function App() {
   )
 
   const handleCommandPaletteExecute = useCallback(
-    (action: () => void) => {
-      const cmd = ALL_COMMAND_IDS.find((c) => c.action === action)
-      if (cmd && commands) {
-        const result = commands.handle(cmd.id)
-        if (result.handled) {
-          if (result.message === "SETUP_WIZARD") {
-            setAppState("setup")
-            return
-          }
-          if (result.message?.startsWith("SETUP_PROVIDER:")) {
-            const providerId = result.message.slice("SETUP_PROVIDER:".length)
-            handleSetupComplete(providerId)
-            return
-          }
-          if (result.message) {
-            setStatusMessage(result.message)
-            setTimeout(() => setStatusMessage(""), 4000)
-          }
-          return
-        }
-      }
-      action()
+    (command: string) => {
+      setCommandPaletteOpen(false)
+      handleSubmit(command)
     },
-    [commands, handleSetupComplete]
+    [handleSubmit]
   )
 
   useInput((input, key) => {
@@ -245,18 +317,18 @@ export function App() {
       return
     }
 
-    if (key.escape && isStreaming) {
-      engine.cancelStreaming()
-      setIsStreaming(false)
-      setIsProcessing(false)
-      setStreamingToolCalls([])
-      setStatusMessage("Stream cancelled.")
+    if (commandPaletteOpen) {
+      if (key.escape) {
+        setCommandPaletteOpen(false)
+      }
       return
     }
 
-    if (commandPaletteOpen) return
-
     if (permissionReq) {
+      if (key.escape) {
+        handlePermission("deny")
+        return
+      }
       if (input === "y") {
         handlePermission("allow")
         return
@@ -272,18 +344,33 @@ export function App() {
       return
     }
 
+    if (key.escape && isStreaming) {
+      engine.cancelStreaming()
+      setIsStreaming(false)
+      setIsProcessing(false)
+      setStreamingToolCalls([])
+      setStatusMessage("Stream cancelled.")
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+      statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 3000)
+      return
+    }
+
     if (key.tab) {
       const agents = engine.getAgents().map((a) => a.name)
       const currentIdx = agents.indexOf(agentName)
       const nextIdx = (currentIdx + 1) % agents.length
       const nextAgent = agents[nextIdx]
       if (nextAgent) {
-        const agent = engine.switchAgent(nextAgent)
+        let agent
+        try {
+          agent = engine.switchAgent(nextAgent)
+        } catch {}
         if (agent) {
           setAgentName(agent.name)
           setAgentColor(agent.color || theme.colors.accent)
           setStatusMessage(`Switched to ${agent.name}`)
-          setTimeout(() => setStatusMessage(""), 2000)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 2000)
         }
       }
     }
@@ -323,19 +410,12 @@ export function App() {
             agentName={agentName}
             agentColor={agentColor}
             agentNames={agentNames}
-            onAgentSwitch={(name) => {
-              const agent = engine!.switchAgent(name)
-              if (agent) {
-                setAgentName(agent.name)
-                setAgentColor(agent.color || theme.colors.accent)
-              }
-            }}
             maxWidth={contentMaxWidth}
           />
 
           <Box flexGrow={1} flexDirection="column" paddingY={0}>
             {messages.length === 0 && !isStreaming ? (
-              <WelcomeScreen width={terminalWidth} />
+              <WelcomeScreen width={terminalWidth} engine={engine!} />
             ) : (
               <ChatView
                 messages={messages}
@@ -343,6 +423,7 @@ export function App() {
                 isStreaming={isStreaming}
                 errors={errors}
                 streamingToolCalls={streamingToolCalls}
+                terminalHeight={terminalHeight}
               />
             )}
           </Box>
@@ -351,9 +432,6 @@ export function App() {
             <PermissionPrompt
               toolName={permissionReq.toolName}
               reason={permissionReq.reason}
-              onAllow={() => handlePermission("allow")}
-              onDeny={() => handlePermission("deny")}
-              onAllowOnce={() => handlePermission("allowOnce")}
             />
           )}
 
@@ -380,24 +458,33 @@ export function App() {
             errorCount={errors.length}
             cost={cost}
           />
+
+          {swarmTasks.length > 0 && (
+            <Box
+              paddingX={1}
+              paddingY={0}
+              borderStyle="single"
+              borderColor={theme.colors.accentDim}
+              flexDirection="row"
+              gap={1}
+            >
+              <Text color={theme.colors.accent}>{theme.chars.diamond}</Text>
+              <Text color={theme.colors.textDim}>Swarm:</Text>
+              {swarmTasks.slice(0, 3).map((t, i) => (
+                <React.Fragment key={t.id}>
+                  {i > 0 && <Text color={theme.colors.textMuted}> | </Text>}
+                  <Text color={t.status === "running" ? theme.colors.success : theme.colors.warning}>
+                    {t.name} [{t.status}]
+                  </Text>
+                </React.Fragment>
+              ))}
+              {swarmTasks.length > 3 && (
+                <Text color={theme.colors.textMuted}> +{swarmTasks.length - 3} more</Text>
+              )}
+            </Box>
+          )}
         </>
       )}
     </Box>
   )
 }
-
-const ALL_COMMAND_IDS = [
-  { id: "/agent build", action: () => {} },
-  { id: "/agent plan", action: () => {} },
-  { id: "/agent explore", action: () => {} },
-  { id: "/model", action: () => {} },
-  { id: "/provider", action: () => {} },
-  { id: "/oauth", action: () => {} },
-  { id: "/clear", action: () => {} },
-  { id: "/undo", action: () => {} },
-  { id: "/status", action: () => {} },
-  { id: "/share", action: () => {} },
-  { id: "/setup", action: () => {} },
-  { id: "/help", action: () => {} },
-  { id: "/exit", action: () => {} },
-]

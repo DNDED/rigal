@@ -1,6 +1,7 @@
 import type { ToolDef, ToolContext, ToolResult } from "@argent/core"
+import { resolveSafePath } from "@argent/core"
 import { readdirSync, statSync } from "fs"
-import { join, relative, dirname } from "path"
+import { join, relative, isAbsolute, resolve } from "path"
 
 export const globTool: ToolDef = {
   name: "glob",
@@ -16,8 +17,17 @@ export const globTool: ToolDef = {
   permission: { type: "allow" },
 
   async execute(params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+    if (typeof params.pattern !== "string") return { content: [{ type: "text", text: "pattern must be a string" }], isError: true }
     const pattern = params.pattern as string
-    const searchPath = (params.path as string) || ctx.workingDirectory
+    const rawPath = (params.path as string) ?? ctx.workingDirectory
+    const resolvedPath = isAbsolute(rawPath) ? rawPath : resolve(ctx.workingDirectory, rawPath)
+    const searchPath = resolveSafePath(resolvedPath, ctx)
+    if (!searchPath) {
+      return {
+        content: [{ type: "text", text: `Path outside workspace: ${resolvedPath}` }],
+        isError: true,
+      }
+    }
 
     try {
       const results = await globSearch(searchPath, pattern, ctx.workingDirectory)
@@ -25,8 +35,9 @@ export const globTool: ToolDef = {
       const truncated = results.length > 200 ? `\n[${results.length - 200} more results truncated]` : ""
       return { content: [{ type: "text", text: output + truncated || "(no matches)" }] }
     } catch (err) {
+      console.error("[argent] glob:", err instanceof Error ? err.message : String(err))
       return {
-        content: [{ type: "text", text: `Glob failed: ${err instanceof Error ? err.message : String(err)}` }],
+        content: [{ type: "text", text: "File search failed" }],
         isError: true,
       }
     }
@@ -49,6 +60,7 @@ async function globSearch(rootDir: string, patternStr: string, workingDir: strin
     }
 
     const segment = patternSegments[0]
+    if (!segment) return
     const remaining = patternSegments.slice(1)
 
     if (segment === "**") {
@@ -65,7 +77,7 @@ async function globSearch(rootDir: string, patternStr: string, workingDir: strin
       if (remaining.length > 0) {
         for (const entry of entries) {
           if (entry.isDir && !entry.name.startsWith(".") && entry.name !== "node_modules") {
-            await walk(join(dir, entry.name), remaining, depth + 1)
+              await walk(join(dir, entry.name), remaining, depth + 1)
           }
         }
       }
@@ -82,13 +94,7 @@ async function globSearch(rootDir: string, patternStr: string, workingDir: strin
     }
   }
 
-  let segments = normalizedPattern.split("/").filter(Boolean)
-  if (!normalizedPattern.startsWith("**") && !normalizedPattern.startsWith("*")) {
-    segments = [".", ...segments]
-    rootDir = join(workingDir, normalizedPattern.split("/")[0] || "")
-    segments = segments.slice(1)
-    if (segments.length === 0) segments = ["*"]
-  }
+  const segments = normalizedPattern.split("/").filter(Boolean)
 
   try {
     await walk(rootDir, segments, 0)
@@ -111,9 +117,9 @@ function matchName(name: string, segment: string): boolean {
   if (segment === "*") return true
   if (segment === "**") return true
   const regexStr = segment
-    .replace(/\./g, "\\.")
-    .replace(/\*/g, ".*")
-    .replace(/\?/g, ".")
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\\\*/g, ".*")
+    .replace(/\\\?/g, ".")
   const regex = new RegExp(`^${regexStr}$`, "i")
   return regex.test(name)
 }

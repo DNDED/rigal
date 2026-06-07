@@ -1,7 +1,6 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
-import { existsSync, readFileSync } from "fs"
+import { existsSync } from "fs"
 import { join } from "path"
 
 export function testCommand(args: string[], engine: ArgentEngine): string {
@@ -19,37 +18,37 @@ export function testCommand(args: string[], engine: ArgentEngine): string {
   const testRunners: Array<{ name: string; cmd: (pattern?: string) => string; detect: () => boolean }> = [
     {
       name: "vitest",
-      cmd: (p) => p ? `npx vitest run "${p}" 2>&1` : "npx vitest run 2>&1",
+      cmd: (p) => p ? `npx vitest run '${p.replace(/'/g, "'\\''")}' 2>&1` : "npx vitest run 2>&1",
       detect: () => existsSync(join(wd, "vitest.config.ts")) || existsSync(join(wd, "vitest.config.js")) || existsSync(join(wd, "vitest.config.mjs")),
     },
     {
       name: "jest",
-      cmd: (p) => p ? `npx jest "${p}" --no-color 2>&1` : "npx jest --no-color 2>&1",
+      cmd: (p) => p ? `npx jest '${p.replace(/'/g, "'\\''")}' --no-color 2>&1` : "npx jest --no-color 2>&1",
       detect: () => existsSync(join(wd, "jest.config.ts")) || existsSync(join(wd, "jest.config.js")) || existsSync(join(wd, "jest.config.mjs")) || existsSync(join(wd, "jest.config.json")),
     },
     {
       name: "bun test",
-      cmd: (p) => p ? `bun test "${p}" 2>&1` : "bun test 2>&1",
+      cmd: (p) => p ? `bun test '${p.replace(/'/g, "'\\''")}' 2>&1` : "bun test 2>&1",
       detect: () => existsSync(join(wd, "bunfig.toml")) || existsSync(join(wd, "bun.lock")),
     },
     {
       name: "mocha",
-      cmd: (p) => p ? `npx mocha --grep "${p}" 2>&1` : "npx mocha 2>&1",
+      cmd: (p) => p ? `npx mocha --grep '${p.replace(/'/g, "'\\''")}' 2>&1` : "npx mocha 2>&1",
       detect: () => existsSync(join(wd, ".mocharc.json")) || existsSync(join(wd, ".mocharc.js")) || existsSync(join(wd, ".mocharc.yaml")),
     },
     {
       name: "pytest",
-      cmd: (p) => p ? `python -m pytest -k "${p}" -v 2>&1` : "python -m pytest -v 2>&1",
+      cmd: (p) => p ? `python -m pytest -k '${p.replace(/'/g, "'\\''")}' -v 2>&1` : "python -m pytest -v 2>&1",
       detect: () => existsSync(join(wd, "pytest.ini")) || existsSync(join(wd, "pyproject.toml")) || existsSync(join(wd, "tox.ini")),
     },
     {
       name: "cargo test",
-      cmd: (p) => p ? `cargo test "${p}" 2>&1` : "cargo test 2>&1",
+      cmd: (p) => p ? `cargo test '${p.replace(/'/g, "'\\''")}' 2>&1` : "cargo test 2>&1",
       detect: () => existsSync(join(wd, "Cargo.toml")),
     },
     {
       name: "go test",
-      cmd: (p) => p ? `go test -run "${p}" ./... 2>&1` : "go test ./... 2>&1",
+      cmd: (p) => p ? `go test -run '${p.replace(/'/g, "'\\''")}' ./... 2>&1` : "go test ./... 2>&1",
       detect: () => existsSync(join(wd, "go.mod")),
     },
   ]
@@ -68,6 +67,7 @@ export function testCommand(args: string[], engine: ArgentEngine): string {
         encoding: "utf-8",
         timeout: 120000,
         maxBuffer: 500 * 1024,
+        shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
       })
 
       const filtered = output

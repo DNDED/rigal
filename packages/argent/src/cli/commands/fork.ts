@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
 export function forkCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []
@@ -32,7 +31,9 @@ export function forkCommand(args: string[], engine: ArgentEngine): string {
   fork.metadata = { ...source.metadata, forkedFrom: source.id }
   fork.updatedAt = new Date()
 
-  engine.sessionId = fork.id
+  if (!engine.resumeSession(fork.id)) {
+    return "Failed to switch to the forked session."
+  }
 
   lines.push(`  ● Session forked successfully.`)
   lines.push("")

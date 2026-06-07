@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
 
 export function diffCommand(engine: ArgentEngine): string {

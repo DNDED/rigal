@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
 export function branchCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []
@@ -34,7 +33,9 @@ export function branchCommand(args: string[], engine: ArgentEngine): string {
     parentSession: engine.sessionId ?? "root",
   }
 
-  engine.sessionId = branch.id
+  if (!engine.resumeSession(branch.id)) {
+    return "Failed to switch to the new branch."
+  }
 
   lines.push(`  ● Branch created: ${name}`)
   lines.push("")

@@ -54,7 +54,12 @@ export interface ToolResultMessage {
   isError?: boolean
 }
 
-export type Message = UserMessage | AssistantMessage | ToolResultMessage
+export interface SystemMessage {
+  role: "system"
+  content: MessageContent[]
+}
+
+export type Message = UserMessage | AssistantMessage | ToolResultMessage | SystemMessage
 
 export interface MessageContent {
   type: "text" | "image"
@@ -66,7 +71,6 @@ export interface Agent {
   name: string
   description: string
   mode: "primary" | "subagent"
-  model?: ModelRef
   tools: Record<string, ToolPermission>
   systemPrompt: string
   color?: string
@@ -100,9 +104,5 @@ export interface ProviderConfig {
 export interface ArgentConfig {
   provider?: ProviderConfig
   permission?: Record<string, ToolPermission>
-  reference?: Record<string, string>
   mcp?: Record<string, unknown>
-  agentModels?: Record<string, { baseUrl: string; apiKey: string }>
-  agentRouting?: Record<string, string>
-  tools?: Record<string, boolean>
 }

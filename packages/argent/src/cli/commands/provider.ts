@@ -43,7 +43,8 @@ function renderProviderList(providers: ProviderDescriptor[], currentProvider: st
     const marker = isCurrent ? "●" : "○"
     const num = String(i + 1).padStart(2, " ")
     const name = p.name.padEnd(20, " ")
-    const model = p.defaultModel.length > 20 ? p.defaultModel.slice(0, 18) + ".." : p.defaultModel.padEnd(20, " ")
+    const defaultModel = p.defaultModel || "unknown"
+    const model = defaultModel.length > 20 ? defaultModel.slice(0, 18) + ".." : defaultModel.padEnd(20, " ")
     const line = `│  ${marker} [${num}] ${name} ${model}│`
     lines.push(line)
   }

@@ -1,8 +1,8 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
 import { existsSync } from "fs"
 import { join } from "path"
+import https from "node:https"
 
 export function doctorCommand(engine: ArgentEngine): string {
   const lines: string[] = []
@@ -69,7 +69,7 @@ export function doctorCommand(engine: ArgentEngine): string {
   }
 
   try {
-    const https = require("https")
+    void https
     checks.push({ name: "HTTPS Connectivity", status: "pass", detail: "Module available." })
   } catch {
     checks.push({ name: "HTTPS Connectivity", status: "warn", detail: "https module unavailable." })

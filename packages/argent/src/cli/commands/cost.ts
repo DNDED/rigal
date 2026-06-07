@@ -1,6 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
-import { PROVIDERS } from "@argent/integrations"
 import type { ProviderDescriptor } from "@argent/integrations"
 
 export function costCommand(engine: ArgentEngine): string {
@@ -31,8 +29,8 @@ export function costCommand(engine: ArgentEngine): string {
     lines.push(`  Input:          $${pricing.inputPer1M.toFixed(2)} / 1M tokens`)
     lines.push(`  Output:         $${pricing.outputPer1M.toFixed(2)} / 1M tokens`)
 
-    const totalTokensIn = 0
-    const totalTokensOut = 0
+    const totalTokensIn = engine.getTotalTokensIn()
+    const totalTokensOut = engine.getTotalTokensOut()
 
     const estCostIn = (totalTokensIn / 1_000_000) * pricing.inputPer1M
     const estCostOut = (totalTokensOut / 1_000_000) * pricing.outputPer1M
@@ -93,11 +91,17 @@ function getModelPricing(desc: ProviderDescriptor | null, model: string | null):
     "grok-3": { inputPer1M: 5.0, outputPer1M: 15.0 },
   }
 
+  let bestMatch: ModelPricing | null = null
+  let bestMatchLen = 0
   for (const [key, price] of Object.entries(pricingMap)) {
     if (model.toLowerCase().includes(key.toLowerCase())) {
-      return price
+      if (key.length > bestMatchLen) {
+        bestMatch = price
+        bestMatchLen = key.length
+      }
     }
   }
+  if (bestMatch) return bestMatch
 
   if (desc?.vendor === "anthropic") return { inputPer1M: 3.0, outputPer1M: 15.0 }
   if (desc?.vendor === "openai") return { inputPer1M: 2.5, outputPer1M: 10.0 }

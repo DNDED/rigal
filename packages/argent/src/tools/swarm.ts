@@ -60,22 +60,27 @@ function swarmSpawnTool(swarmEngine: SwarmEngine, getSessionId: () => string): T
     execute: async (params) => {
       const taskSpecs = Array.isArray(params.tasks) ? params.tasks : [params.tasks]
       const tasks = swarmEngine.spawn(
-        taskSpecs.map((t: Record<string, unknown>) => ({
-          name: String(t.name || "untitled"),
-          description: String(t.description || ""),
-          agentType: String(t.agentType || "explore"),
-          model: t.model ? String(t.model) : undefined,
-          maxSteps: t.maxSteps ? Number(t.maxSteps) : undefined,
-        }))
+        taskSpecs.map((t: Record<string, unknown>) => {
+          if (!t) return { name: "untitled", description: "", agentType: "explore", model: undefined, maxSteps: undefined }
+          const ms = t.maxSteps ? Number(t.maxSteps) : undefined
+          return {
+            name: String(t.name || "untitled"),
+            description: String(t.description || ""),
+            agentType: (() => { const at = String(t.agentType || "explore"); return ["explore", "build", "plan"].includes(at) ? at : "explore" })(),
+            model: t.model ? String(t.model) : undefined,
+            maxSteps: (ms !== undefined && !isNaN(ms) && isFinite(ms) && ms > 0) ? ms : undefined,
+          }
+        })
       )
 
       const sessionId = getSessionId()
       swarmEngine.executeAll(
         tasks.map((t) => t.id),
         sessionId
-      ).catch(() => {})
+      ).catch((err) => { console.error("[argent] Swarm executeAll error:", err instanceof Error ? err.message : String(err)) })
 
       const listing = tasks
+        .filter((t): t is NonNullable<typeof t> => !!t)
         .map((t) => `  ${t.id}: ${t.name} [${t.agentType}]`)
         .join("\n")
 
@@ -137,9 +142,26 @@ function swarmCancelTool(swarmEngine: SwarmEngine): ToolDef {
     },
     execute: async (params) => {
       const taskId = String(params.taskId)
+      const prior = swarmEngine.getStatus(taskId)
+      if (!prior) {
+        return {
+          content: [{ type: "text", text: `Swarm task not found: ${taskId}` }],
+        }
+      }
+      if (prior.status === "cancelled") {
+        return {
+          content: [{ type: "text", text: `Swarm task ${taskId} was already cancelled` }],
+        }
+      }
+      if (prior.status === "completed" || prior.status === "failed") {
+        return {
+          content: [{ type: "text", text: `Swarm task ${taskId} already finished (${prior.status})` }],
+        }
+      }
       swarmEngine.cancel(taskId)
+      const after = swarmEngine.getStatus(taskId)
       return {
-        content: [{ type: "text", text: `Cancelled swarm task: ${taskId}` }],
+        content: [{ type: "text", text: `Cancelled swarm task: ${taskId} (was ${prior.status}, now ${after?.status || "unknown"})` }],
       }
     },
   }

@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
 export function contextCommand(engine: ArgentEngine): string {
   const lines: string[] = []
@@ -38,7 +37,8 @@ export function contextCommand(engine: ArgentEngine): string {
   const userMsgs = messages.filter((m) => m.role === "user")
   let userTokens = 0
   for (const m of userMsgs) {
-    const text = "content" in m ? (m.content as Array<{ text?: string }>).map((c) => c.text || "").join(" ") : ""
+    const content = Array.isArray(m.content) ? m.content as Array<{ text?: string }> : []
+    const text = content.map((c) => c.text || "").join(" ")
     userTokens += estimateTokens(text)
   }
   breakdown.push({ category: "User messages", count: userMsgs.length, tokens: userTokens })
@@ -47,7 +47,8 @@ export function contextCommand(engine: ArgentEngine): string {
   const assistantMsgs = messages.filter((m) => m.role === "assistant")
   let assistantTokens = 0
   for (const m of assistantMsgs) {
-    const text = "content" in m ? (m.content as Array<{ text?: string }>).map((c) => c.text || "").join(" ") : ""
+    const content = Array.isArray(m.content) ? m.content as Array<{ text?: string }> : []
+    const text = content.map((c) => c.text || "").join(" ")
     assistantTokens += estimateTokens(text)
   }
   breakdown.push({ category: "Assistant messages", count: assistantMsgs.length, tokens: assistantTokens })
@@ -56,13 +57,13 @@ export function contextCommand(engine: ArgentEngine): string {
   const toolMsgs = messages.filter((m) => m.role === "tool")
   let toolTokens = 0
   for (const m of toolMsgs) {
-    const text = "content" in m ? (m.content as Array<{ text?: string }>).map((c) => c.text || "").join(" ") : ""
+    const content = Array.isArray(m.content) ? m.content as Array<{ text?: string }> : []
+    const text = content.map((c) => c.text || "").join(" ")
     toolTokens += estimateTokens(text)
   }
   breakdown.push({ category: "Tool results", count: toolMsgs.length, tokens: toolTokens })
   estimatedTokens += toolTokens
 
-  const desc = engine.getCurrentProviderDescriptor()
   const modelName = session.model.model || "unknown"
   let contextLimit = 128000
 
@@ -95,7 +96,7 @@ export function contextCommand(engine: ArgentEngine): string {
     const category = b.category.padEnd(22, " ")
     const count = String(b.count).padStart(6, " ")
     const tokens = formatTokens(b.tokens).padStart(8, " ")
-    const bpct = ((b.tokens / estimatedTokens) * 100).toFixed(1).padStart(5, " ") + "%"
+    const bpct = estimatedTokens === 0 ? "  0.0%" : ((b.tokens / estimatedTokens) * 100).toFixed(1).padStart(5, " ") + "%"
     lines.push(`  │ ${category} ${count} ${tokens}  ${bpct}    │`)
   }
 

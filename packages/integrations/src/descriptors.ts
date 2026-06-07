@@ -11,6 +11,7 @@ const anthropic: ProviderDescriptor = {
   defaultModel: "claude-sonnet-4-20250514",
   models: [
     "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250219",
     "claude-3-opus-20240229",
     "claude-3-5-sonnet-20241022",
     "claude-3-5-haiku-20241022",
@@ -43,8 +44,6 @@ const openai: ProviderDescriptor = {
     "o1",
     "o3-mini",
     "gpt-4.1",
-    "gpt-5",
-    "gpt-5.5",
   ],
   description: "GPT models",
   features: {
@@ -63,9 +62,8 @@ const codex: ProviderDescriptor = {
   authType: "oauth",
   envVars: ["CODEX_API_KEY"],
   baseUrl: "https://chatgpt.com/backend-api/codex",
-  defaultModel: "gpt-5.5",
+  defaultModel: "o4-mini",
   models: [
-    "gpt-5.5",
     "gpt-5.5-codex",
     "gpt-5",
     "codex",
@@ -207,8 +205,6 @@ const deepseek: ProviderDescriptor = {
   models: [
     "deepseek-chat",
     "deepseek-reasoner",
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
   ],
   description: "Strong reasoning models",
   features: {
@@ -565,8 +561,8 @@ const azureOpenai: ProviderDescriptor = {
   vendor: "Microsoft",
   transport: "openai-compatible",
   authType: "api-key",
-  envVars: ["AZURE_OPENAI_API_KEY"],
-  baseUrl: "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT",
+  envVars: ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
+  baseUrl: "",
   defaultModel: "gpt-4o",
   models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1"],
   description: "Azure-hosted OpenAI models",
@@ -583,13 +579,14 @@ const vertex: ProviderDescriptor = {
   vendor: "Google",
   transport: "openai-compatible",
   authType: "bearer",
-  envVars: ["GOOGLE_APPLICATION_CREDENTIALS"],
-  baseUrl: "https://us-central1-aiplatform.googleapis.com/v1",
+  envVars: ["GOOGLE_APPLICATION_CREDENTIALS", "VERTEX_LOCATION", "VERTEX_PROJECT_ID"],
+  baseUrl: "",
   defaultModel: "gemini-2.5-pro",
   models: [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
-    "claude-sonnet-4@20250514",
+    "gemini-2.0-flash",
+    "gemini-2.5-pro-preview-05-25",
   ],
   description: "Google Cloud AI platform",
   features: {
@@ -605,8 +602,8 @@ const cloudflare: ProviderDescriptor = {
   vendor: "Cloudflare",
   transport: "openai-compatible",
   authType: "api-key",
-  envVars: ["CLOUDFLARE_API_TOKEN"],
-  baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
+  envVars: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
+  baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
   defaultModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
   models: [
     "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -654,6 +651,13 @@ const codexCli: ProviderDescriptor = {
   defaultModel: "o4-mini",
   models: ["o4-mini", "gpt-4o", "o3"],
   description: "OpenAI Codex CLI auth",
+  oauthConfig: {
+    clientId: "app_EMoamEEZ73f0CkXaXp7hrann",
+    tokenUrl: "https://auth.openai.com/oauth/token",
+    authUrl: "https://auth.openai.com/authorize",
+    scopes: ["openid", "email", "profile"],
+    grantType: "device_code",
+  },
   features: {
     streaming: true,
     toolCalling: true,
@@ -666,8 +670,8 @@ const warp: ProviderDescriptor = {
   name: "Warp",
   vendor: "Warp",
   transport: "openai-compatible",
-  authType: "oauth",
-  envVars: [],
+  authType: "api-key",
+  envVars: ["WARP_API_KEY"],
   baseUrl: "https://api.warp.dev/v1",
   defaultModel: "warp-code",
   models: ["warp-code", "gpt-4o", "claude-sonnet-4-20250514"],
@@ -757,30 +761,6 @@ const alibaba: ProviderDescriptor = {
   },
 }
 
-const alibabaCoding: ProviderDescriptor = {
-  id: "alibaba-coding",
-  name: "Alibaba Coding Plan",
-  vendor: "Alibaba",
-  transport: "openai-compatible",
-  authType: "api-key",
-  envVars: ["DASHSCOPE_API_KEY"],
-  baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  defaultModel: "qwen-2.5-coder-32b",
-  models: [
-    "qwen-2.5-coder-32b",
-    "qwen-2.5-72b",
-    "qwen-max",
-    "qwen-plus",
-  ],
-  description: "Alibaba coding plan",
-  features: {
-    streaming: true,
-    toolCalling: true,
-    vision: false,
-    thinking: true,
-  },
-}
-
 const kimi: ProviderDescriptor = {
   id: "kimi",
   name: "Kimi",
@@ -797,30 +777,6 @@ const kimi: ProviderDescriptor = {
     "kimi-k2.6",
   ],
   description: "Kimi models by Moonshot",
-  features: {
-    streaming: true,
-    toolCalling: true,
-    vision: false,
-    thinking: true,
-  },
-}
-
-const kimiCn: ProviderDescriptor = {
-  id: "kimi-cn",
-  name: "Kimi CN",
-  vendor: "Moonshot",
-  transport: "openai-compatible",
-  authType: "api-key",
-  envVars: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
-  baseUrl: "https://api.moonshot.cn/v1",
-  defaultModel: "moonshot-v1-128k",
-  models: [
-    "moonshot-v1-128k",
-    "moonshot-v1-32k",
-    "kimi-k2.5",
-    "kimi-k2.6",
-  ],
-  description: "Kimi China region",
   features: {
     streaming: true,
     toolCalling: true,
@@ -935,30 +891,6 @@ const minimax: ProviderDescriptor = {
     "minimax-m2.7",
   ],
   description: "MiniMax models",
-  features: {
-    streaming: true,
-    toolCalling: true,
-    vision: false,
-    thinking: true,
-  },
-}
-
-const minimaxCn: ProviderDescriptor = {
-  id: "minimax-cn",
-  name: "MiniMax CN",
-  vendor: "MiniMax",
-  transport: "openai-compatible",
-  authType: "api-key",
-  envVars: ["MINIMAX_API_KEY"],
-  baseUrl: "https://api.minimax.chat/v1",
-  defaultModel: "minimax-01",
-  models: [
-    "minimax-01",
-    "minimax-text-01",
-    "minimax-m2.5",
-    "minimax-m2.7",
-  ],
-  description: "MiniMax China region",
   features: {
     streaming: true,
     toolCalling: true,
@@ -1156,30 +1088,6 @@ const ollamaCloud: ProviderDescriptor = {
   },
 }
 
-const ollamaLocal: ProviderDescriptor = {
-  id: "ollama-local",
-  name: "Ollama Local",
-  vendor: "Ollama",
-  transport: "openai-compatible",
-  authType: "none",
-  envVars: [],
-  baseUrl: "http://localhost:11434/v1",
-  defaultModel: "qwen2.5-coder:7b",
-  models: [
-    "qwen2.5-coder:7b",
-    "qwen2.5-coder:14b",
-    "codellama:7b",
-    "deepseek-r1:8b",
-    "llama3.1:8b",
-  ],
-  description: "Local models — no API key needed",
-  features: {
-    streaming: true,
-    toolCalling: true,
-    vision: false,
-  },
-}
-
 const ollama: ProviderDescriptor = {
   id: "ollama",
   name: "Ollama",
@@ -1326,7 +1234,7 @@ const lepton: ProviderDescriptor = {
   baseUrl: "https://llama3-3-70b.lepton.run/api/v1",
   defaultModel: "llama3-3-70b",
   models: ["llama3-3-70b", "deepseek-r1"],
-  description: "Serverless GPU inference",
+  description: "Serverless GPU inference. Note: Each model uses its own subdomain URL.",
   features: {
     streaming: true,
     toolCalling: true,
@@ -1470,15 +1378,12 @@ export const PROVIDERS: Record<string, ProviderDescriptor> = {
   nous,
   "qwen-oauth": qwenOauth,
   alibaba,
-  "alibaba-coding": alibabaCoding,
   kimi,
-  "kimi-cn": kimiCn,
   zhipu,
   novita,
   xiaomi,
   nvidia,
   minimax,
-  "minimax-cn": minimaxCn,
   "minimax-oauth": minimaxOauth,
   stepfun,
   kilocode,
@@ -1487,7 +1392,6 @@ export const PROVIDERS: Record<string, ProviderDescriptor> = {
   gmi,
   arcee,
   "ollama-cloud": ollamaCloud,
-  "ollama-local": ollamaLocal,
   ollama: ollama,
   lmstudio,
   jan,

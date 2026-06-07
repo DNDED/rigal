@@ -1,7 +1,6 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
-import { existsSync, readFileSync } from "fs"
+import { existsSync } from "fs"
 import { join } from "path"
 
 export function lintCommand(engine: ArgentEngine): string {
@@ -38,6 +37,7 @@ export function lintCommand(engine: ArgentEngine): string {
         encoding: "utf-8",
         timeout: 60000,
         maxBuffer: 500 * 1024,
+        shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh",
       })
 
       const trimmed = output.trim()

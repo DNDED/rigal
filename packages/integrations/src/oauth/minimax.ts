@@ -12,7 +12,7 @@ function openBrowser(url: string): void {
   const platform = process.platform
   const cmd =
     platform === "darwin" ? `open "${url}"` :
-    platform === "win32" ? `start "${url}"` :
+    platform === "win32" ? `start "" "${url}"` :
     `xdg-open "${url}"`
   exec(cmd, () => {})
 }
@@ -53,9 +53,9 @@ async function pollForToken(deviceCode: string): Promise<OAuthToken> {
     await sleep(POLL_INTERVAL_MS)
 
     const body = new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:user_code",
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       client_id: CLIENT_ID,
-      user_code: deviceCode,
+      device_code: deviceCode,
     })
 
     const res = await fetch(TOKEN_URL, {
@@ -110,7 +110,7 @@ export async function startMinimaxOAuth(authStore: AuthStore): Promise<OAuthToke
   openBrowser(loginUrl)
 
   const token = await pollForToken(deviceCode)
-  authStore.setToken("minimax", token)
+  await authStore.setToken("minimax", token)
 
   console.log("MiniMax authentication successful!")
   return token

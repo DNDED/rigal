@@ -91,7 +91,10 @@ else
     if [ ! -f "$SHELL_CONFIG" ] || ! grep -q "ARGENT" "$SHELL_CONFIG" 2>/dev/null; then
       echo "" >> "$SHELL_CONFIG"
       echo "# ARGENT - Universal AI Coding Harness" >> "$SHELL_CONFIG"
-      echo "export PATH=\"$ARGENT_INSTALL_DIR:\$PATH\"" >> "$SHELL_CONFIG"
+      case "$SHELL" in
+        */fish) echo "set -gx PATH $ARGENT_INSTALL_DIR \$PATH" >> "$SHELL_CONFIG" ;;
+        *)      echo "export PATH=\"$ARGENT_INSTALL_DIR:\$PATH\"" >> "$SHELL_CONFIG" ;;
+      esac
       echo -e "${GREEN}✓ Added to PATH in $SHELL_CONFIG${RESET}"
     fi
   else

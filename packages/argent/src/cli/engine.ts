@@ -1,13 +1,18 @@
-import type { ProviderConfig, Agent, Message, UserMessage, AssistantMessage, ToolResultMessage, ToolCall, ToolResult, ToolPermission } from "@argent/core"
+import type { ProviderConfig, Agent, Message, UserMessage, SystemMessage, AssistantMessage, ToolResultMessage, ToolCall, ToolResult } from "@argent/core"
 import { ConfigService, SessionService, ToolRegistry, PermissionService } from "@argent/core"
-import { createAnthropicProvider, createOpenAIProvider, createOllamaProvider, type LLMProvider, type ProviderStreamEvent } from "@argent/llm"
-import { PROVIDERS, getProvider, listProviders, findProviderByEnvVar, OAuthManager } from "@argent/integrations"
+import type { LLMProvider } from "@argent/llm"
+import { PROVIDERS, getProvider, OAuthManager, createProviderFromDescriptor, autoDetectProvider as detectProviderFromEnv } from "@argent/integrations"
 import type { ProviderDescriptor } from "@argent/integrations"
-import { builtinTools } from "../tools/index.js"
-import { theme } from "../ui/theme.js"
+import { builtinTools, createSwarmTools } from "../tools/index.js"
+import { SwarmEngine, type SwarmTask } from "./swarm.js"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { homedir } from "node:os"
+import type { ToolDef } from "@argent/core"
 
 export type UIEvent =
   | { type: "message"; message: Message }
+  | { type: "messages_reset"; messages: Message[] }
   | { type: "stream_start" }
   | { type: "stream_delta"; text: string }
   | { type: "stream_stop"; usage?: { inputTokens: number; outputTokens: number } }
@@ -17,23 +22,30 @@ export type UIEvent =
   | { type: "permission_denied"; toolName: string }
   | { type: "error"; message: string }
   | { type: "status"; tokensIn: number; tokensOut: number; latency: number }
+  | { type: "swarm_updated"; tasks: SwarmTask[] }
+  | { type: "doom_loop_warning"; message: string }
+  | { type: "info"; message: string }
 
 export class ArgentEngine {
   config: ConfigService
   sessions: SessionService
   tools: ToolRegistry
   permissions: PermissionService
+  swarm: SwarmEngine
   provider: LLMProvider | null = null
   sessionId: string | null = null
   onEvent: (event: UIEvent) => void = () => {}
   private totalTokensIn = 0
   private totalTokensOut = 0
-  private permissionQueue: Array<{ resolve: (v: boolean) => void; sessionId: string; toolName: string }> = []
+  private permissionQueue: Array<{ resolve: (v: boolean) => void; sessionId: string; toolName: string; params: Record<string, unknown> }> = []
   private onceAllowed: Set<string> = new Set()
   private oauthManager: OAuthManager
   private currentProviderDescriptor: ProviderDescriptor | null = null
   private abortController: AbortController | null = null
   private systemPromptSent = false
+  private consecutiveToolErrors = 0
+  private doomLoopWarned = false
+  private isRunning = false
 
   constructor(workingDir?: string) {
     this.config = new ConfigService(workingDir)
@@ -44,10 +56,18 @@ export class ArgentEngine {
 
     this.tools.registerAll(builtinTools)
 
+    this.swarm = new SwarmEngine(this)
+    this.tools.registerAll(createSwarmTools(this.swarm, () => this.sessionId || ""))
+    this.swarm.onTaskUpdate = () => {
+      this.onEvent({ type: "swarm_updated", tasks: this.swarm.getAllStatuses() })
+    }
+
+    this.loadCustomTools()
+
     this.permissions.setHandler(async (req) => {
       this.onEvent({ type: "permission_needed", toolName: req.toolName, reason: req.reason })
       return new Promise((resolve) => {
-        this.permissionQueue.push({ resolve, sessionId: req.sessionId, toolName: req.toolName })
+        this.permissionQueue.push({ resolve, sessionId: req.sessionId, toolName: req.toolName, params: req.params })
       })
     })
 
@@ -61,20 +81,15 @@ export class ArgentEngine {
 
   private autoDetectProvider(): void {
     const existing = this.config.getProvider()
-    if (existing && existing.type !== "none") return
+    if (existing && existing.type !== "none") {
+      this.currentProviderDescriptor = this.resolveDescriptor(existing)
+      return
+    }
 
-    const detected = findProviderByEnvVar()
+    const detected = detectProviderFromEnv(PROVIDERS)
     if (detected) {
-      const firstEnvVar = detected.envVars[0]
-      const apiKey = firstEnvVar ? process.env[firstEnvVar] || "" : ""
-      this.currentProviderDescriptor = detected
-      this.config.setProvider({
-        type: detected.transport === "anthropic-native" ? "anthropic" : detected.transport === "custom" ? "openai-compatible" : detected.transport === "gemini" ? "openai-compatible" : "openai",
-        apiKey,
-        model: detected.defaultModel,
-        baseUrl: detected.baseUrl,
-        headers: detected.headers,
-      })
+      this.currentProviderDescriptor = detected.provider
+      this.config.setProvider(this.buildProviderConfig(detected.provider, detected.credentials))
       this.onEvent({ type: "status", tokensIn: 0, tokensOut: 0, latency: 0 })
     }
   }
@@ -85,40 +100,41 @@ export class ArgentEngine {
       return
     }
 
-    const desc = this.currentProviderDescriptor || this.resolveDescriptor(pc)
-
-    if (desc?.transport === "anthropic-native" || pc.type === "anthropic") {
-      this.provider = createAnthropicProvider({
-        apiKey: pc.apiKey || "",
-        baseUrl: pc.baseUrl || desc?.baseUrl,
-        model: pc.model || desc?.defaultModel || "claude-sonnet-4-20250514",
-        headers: pc.headers || desc?.headers,
+    const desc = this.resolveDescriptor(pc) || this.createDescriptorFromConfig(pc)
+    this.currentProviderDescriptor = desc
+    try {
+      this.provider = createProviderFromDescriptor(desc, {
+        apiKey: pc.apiKey,
+        oauthToken: desc.authType === "oauth" ? this.oauthManager.getToken(desc.id)?.accessToken : undefined,
+        baseUrl: pc.baseUrl,
+        model: pc.model,
+        headers: pc.headers,
       })
-    } else if (pc.type === "ollama" || desc?.id === "ollama") {
-      this.provider = createOllamaProvider({
-        apiKey: pc.apiKey || "ollama",
-        baseUrl: pc.baseUrl || desc?.baseUrl,
-        model: pc.model || desc?.defaultModel || "qwen2.5-coder:7b",
-      })
-    } else {
-      this.provider = createOpenAIProvider({
-        apiKey: pc.apiKey || "",
-        baseUrl: pc.baseUrl || desc?.baseUrl,
-        model: pc.model || desc?.defaultModel || "gpt-4o",
-        headers: pc.headers || desc?.headers,
-      })
+    } catch (err) {
+      this.provider = null
+      console.error("[argent] Failed to create provider:", err instanceof Error ? err.message : String(err))
     }
   }
 
   private resolveDescriptor(pc: ProviderConfig): ProviderDescriptor | null {
     if (this.currentProviderDescriptor) return this.currentProviderDescriptor
-    const match = Object.values(PROVIDERS).find((p) => {
-      if (pc.type === "anthropic" && p.id === "anthropic") return true
-      if (pc.type === "ollama" && p.id === "ollama") return true
-      if (pc.baseUrl && p.baseUrl === pc.baseUrl) return true
-      return false
-    })
-    return match || null
+
+    if (pc.baseUrl) {
+      const byBaseUrl = Object.values(PROVIDERS).find((p) => p.baseUrl === pc.baseUrl)
+      if (byBaseUrl) return byBaseUrl
+    }
+
+    const byType = pc.type ? getProvider(pc.type) : undefined
+    if (byType) return byType
+
+    if (pc.model) {
+      const byModel = Object.values(PROVIDERS).find((p) => p.models.includes(pc.model || ""))
+      if (byModel) return byModel
+    }
+
+    if (pc.type === "openai-compatible") return getProvider("custom") || null
+
+    return null
   }
 
   setProvider(providerId: string, apiKey?: string): boolean {
@@ -128,42 +144,41 @@ export class ArgentEngine {
     this.currentProviderDescriptor = desc
 
     const key = apiKey || (desc.envVars[0] ? process.env[desc.envVars[0]] || "" : "")
+    const oauthToken = desc.authType === "oauth" ? this.oauthManager.getToken(desc.id)?.accessToken : undefined
 
-    let type: ProviderConfig["type"] = "openai"
-    if (desc.transport === "anthropic-native") type = "anthropic"
-    else if (desc.id === "ollama") type = "ollama"
-    else if (desc.transport === "custom") type = "openai-compatible"
-
-    if (desc.authType === "oauth") {
-      const token = this.oauthManager.getToken(desc.id)
-      if (token) {
-        this.config.setProvider({
-          type,
-          apiKey: token.accessToken,
-          model: desc.defaultModel,
-          baseUrl: desc.baseUrl,
-          headers: desc.headers,
-        })
-      } else {
-        this.config.setProvider({
-          type,
-          apiKey: "",
-          model: desc.defaultModel,
-          baseUrl: desc.baseUrl,
-          headers: desc.headers,
-        })
-      }
-    } else {
-      this.config.setProvider({
-        type,
-        apiKey: key,
-        model: desc.defaultModel,
-        baseUrl: desc.baseUrl,
-        headers: desc.headers,
-      })
-    }
+    this.config.setProvider(this.buildProviderConfig(desc, {
+      apiKey: key,
+      oauthToken,
+    }))
 
     this.initProvider()
+    return true
+  }
+
+  clearSession(): void {
+    if (this.isRunning) return
+    const sid = this.sessionId
+    this.drainPermissionQueue()
+    this.sessionId = null
+    this.systemPromptSent = false
+    this.permissions.reset(sid ?? undefined)
+    this.onceAllowed.clear()
+    this.onEvent({ type: "messages_reset", messages: [] })
+  }
+
+  resumeSession(sessionId: string): boolean {
+    if (this.isRunning) return false
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+
+    this.sessionId = sessionId
+    this.systemPromptSent = false
+    this.drainPermissionQueue()
+    this.permissions.reset(this.sessionId)
+    this.onceAllowed.clear()
+
+    const msgs = this.sessions.getMessages(sessionId)
+    this.onEvent({ type: "messages_reset", messages: msgs })
     return true
   }
 
@@ -200,14 +215,22 @@ export class ArgentEngine {
     return this.oauthManager
   }
 
-  emitStatusMessage(msg: string): void {
+  getTotalTokensIn(): number { return this.totalTokensIn }
+  getTotalTokensOut(): number { return this.totalTokensOut }
+
+  emitErrorMessage(msg: string): void {
     this.onEvent({ type: "error", message: msg })
+  }
+
+  emitInfoMessage(msg: string): void {
+    this.onEvent({ type: "info", message: msg })
   }
 
   hasProvider(): boolean {
     const pc = this.config.getProvider()
     if (!pc) return false
     if (this.currentProviderDescriptor?.authType === "oauth") {
+      if (pc.apiKey && pc.apiKey.length > 0) return true
       return this.oauthManager.getToken(this.currentProviderDescriptor.id) !== undefined
     }
     if (this.currentProviderDescriptor?.authType === "none") return true
@@ -218,7 +241,7 @@ export class ArgentEngine {
     if (!this.sessionId) return this.config.getAgent("build")
     const session = this.sessions.get(this.sessionId)
     if (!session) return this.config.getAgent("build")
-    return this.config.getAgent(session.agentName)
+    return this.config.getAgent(session.agentName) || this.config.getAgent("build")
   }
 
   getAgents(): Agent[] {
@@ -242,10 +265,17 @@ export class ArgentEngine {
   }
 
   async sendMessage(text: string): Promise<void> {
+    if (this.isRunning) {
+      this.onEvent({ type: "error", message: "Already processing a message." })
+      return
+    }
+    this.isRunning = true
+
     if (!this.provider) {
       this.initProvider()
-      if (!this.provider) {
-        this.onEvent({ type: "error", message: "No provider configured." })
+      if (!this.provider || !this.hasProvider()) {
+        this.onEvent({ type: "error", message: "No AI provider configured. Type /setup to choose a provider. Run a local model with Ollama for free (no API key needed): curl -fsSL https://ollama.com/install.sh | sh" })
+        this.isRunning = false
         return
       }
     }
@@ -273,10 +303,19 @@ export class ArgentEngine {
     this.sessions.addMessage(this.sessionId, userMsg)
     this.onEvent({ type: "message", message: userMsg })
 
-    await this.runAgentLoop(agent)
+    this.consecutiveToolErrors = 0
+    this.doomLoopWarned = false
+
+    try {
+      await this.runAgentLoop(agent)
+    } finally {
+      this.isRunning = false
+      this.abortController = null
+    }
   }
 
   cancelStreaming(): void {
+    if (!this.isRunning) return
     if (this.abortController) {
       this.abortController.abort()
       this.abortController = null
@@ -284,23 +323,25 @@ export class ArgentEngine {
     }
   }
 
-  undoLastExchange(): void {
-    if (!this.sessionId) return
-    this.sessions.undo(this.sessionId)
+  undoLastExchange(): boolean {
+    if (this.isRunning) return false
+    if (!this.sessionId) return false
+    const undone = this.sessions.undo(this.sessionId)
+    if (!undone) return false
     this.systemPromptSent = false
     const msgs = this.sessions.getMessages(this.sessionId)
-    for (const msg of msgs) {
-      this.onEvent({ type: "message", message: msg })
-    }
+    this.onEvent({ type: "messages_reset", messages: msgs })
+    return true
   }
 
   private async runAgentLoop(agent: Agent): Promise<void> {
+    const sessionId = this.sessionId!
     const maxLoops = 25
     let loopCount = 0
 
     while (loopCount < maxLoops) {
       loopCount++
-      const messages = this.sessions.getMessages(this.sessionId!)
+      const messages = this.sessions.getMessages(sessionId)
 
       let allMsgs: Message[]
       if (!this.systemPromptSent) {
@@ -331,13 +372,14 @@ export class ArgentEngine {
       let toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = []
 
       try {
-        const stream = this.provider!.stream(allMsgs, toolDefs.length > 0 ? toolDefs : undefined)
+        if (!this.abortController) this.abortController = new AbortController()
+        const stream = this.provider!.stream(allMsgs, toolDefs.length > 0 ? toolDefs : undefined, undefined, this.abortController!.signal)
 
         for await (const event of stream) {
           if (event.type === "start") continue
 
           if (event.type === "delta") {
-            fullText += event.text
+            if (fullText.length < 100000) fullText += event.text
             this.onEvent({ type: "stream_delta", text: event.text })
           }
 
@@ -365,11 +407,17 @@ export class ArgentEngine {
           }
 
           if (event.type === "error") {
+            this.onEvent({ type: "stream_stop" })
             this.onEvent({ type: "error", message: event.error })
             return
           }
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          this.onEvent({ type: "stream_stop" })
+          return
+        }
+        this.onEvent({ type: "stream_stop" })
         this.onEvent({ type: "error", message: err instanceof Error ? err.message : String(err) })
         return
       }
@@ -379,7 +427,7 @@ export class ArgentEngine {
         content: fullText ? [{ type: "text", text: fullText }] : [],
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       }
-      this.sessions.addMessage(this.sessionId!, assistantMsg)
+      try { this.sessions.addMessage(sessionId, assistantMsg) } catch { console.error("[argent] Failed to add assistant message to session") }
       this.onEvent({ type: "message", message: assistantMsg })
 
       if (toolCalls.length === 0) return
@@ -399,15 +447,16 @@ export class ArgentEngine {
       if (parallelCalls.length > 0) {
         const results = await Promise.all(
           parallelCalls.map(async (tc) => {
-            const allowed = await this.permissions.check(tc.name, tc.arguments, this.sessionId!)
+            const allowed = await this.permissions.check(tc.name, tc.arguments, sessionId)
             if (!allowed) {
               this.onEvent({ type: "permission_denied", toolName: tc.name })
               return { tc, allowed: false }
             }
             const ctx = {
-              sessionId: this.sessionId!,
+              sessionId,
               workingDirectory: this.config.getWorkingDir(),
               agentName: agent.name,
+              signal: this.abortController?.signal,
             }
             const result = await this.tools.execute(tc.name, tc.arguments, ctx)
             this.onEvent({ type: "tool_result", result, toolCallId: tc.id })
@@ -415,9 +464,9 @@ export class ArgentEngine {
           })
         )
         for (const r of results) {
-          const onceKey = `${this.sessionId!}:${r.tc.name}`
+          const onceKey = `${sessionId}:${r.tc.name}`
           if (this.onceAllowed.has(onceKey)) {
-            this.permissions.clearDecision(this.sessionId!, r.tc.name)
+            this.permissions.clearDecision(sessionId, r.tc.name)
             this.onceAllowed.delete(onceKey)
           }
           const toolMsg: ToolResultMessage = {
@@ -426,12 +475,13 @@ export class ArgentEngine {
             content: r.allowed ? r.result!.content : [{ type: "text" as const, text: `Permission denied for tool "${r.tc.name}"` }],
             isError: r.allowed ? r.result!.isError : true,
           }
-          this.sessions.addMessage(this.sessionId!, toolMsg)
+          try { this.sessions.addMessage(sessionId, toolMsg) } catch { console.error("[argent] Failed to add tool result to session") }
+          this.trackToolResult(toolMsg.isError, !r.allowed)
         }
       }
 
       for (const tc of sequentialCalls) {
-        const allowed = await this.permissions.check(tc.name, tc.arguments, this.sessionId!)
+        const allowed = await this.permissions.check(tc.name, tc.arguments, sessionId)
         if (!allowed) {
           this.onEvent({ type: "permission_denied", toolName: tc.name })
           const errMsg: ToolResultMessage = {
@@ -440,22 +490,24 @@ export class ArgentEngine {
             content: [{ type: "text", text: `Permission denied for tool "${tc.name}"` }],
             isError: true,
           }
-          this.sessions.addMessage(this.sessionId!, errMsg)
+          try { this.sessions.addMessage(sessionId, errMsg) } catch { console.error("[argent] Failed to add error message to session") }
+          this.trackToolResult(true, true)
           continue
         }
 
         const ctx = {
-          sessionId: this.sessionId!,
+          sessionId,
           workingDirectory: this.config.getWorkingDir(),
           agentName: agent.name,
+          signal: this.abortController?.signal,
         }
 
         const result = await this.tools.execute(tc.name, tc.arguments, ctx)
         this.onEvent({ type: "tool_result", result, toolCallId: tc.id })
 
-        const onceKey = `${this.sessionId!}:${tc.name}`
+        const onceKey = `${sessionId}:${tc.name}`
         if (this.onceAllowed.has(onceKey)) {
-          this.permissions.clearDecision(this.sessionId!, tc.name)
+          this.permissions.clearDecision(sessionId, tc.name)
           this.onceAllowed.delete(onceKey)
         }
 
@@ -465,35 +517,211 @@ export class ArgentEngine {
           content: result.content,
           isError: result.isError,
         }
-        this.sessions.addMessage(this.sessionId!, toolMsg)
+        try { this.sessions.addMessage(sessionId, toolMsg) } catch { console.error("[argent] Failed to add tool result to session") }
+        this.trackToolResult(toolMsg.isError)
       }
+    }
+
+    this.onEvent({ type: "error", message: "Maximum agent loop iterations (25) reached." })
+  }
+
+  private trackToolResult(isError: boolean | undefined, isDenied = false): void {
+    if (isError && !isDenied) {
+      this.consecutiveToolErrors++
+    } else {
+      this.consecutiveToolErrors = 0
+    }
+
+    if (this.consecutiveToolErrors >= 3 && !this.doomLoopWarned) {
+      this.doomLoopWarned = true
+      this.onEvent({
+        type: "doom_loop_warning",
+        message: `3 consecutive tool errors detected. The agent may be stuck. Press 'n' to abort or continue sending to override.`,
+      })
     }
   }
 
   resolveAllow(): void {
+    if (this.permissionQueue.length === 0) return
     const next = this.permissionQueue.shift()
-    if (next) next.resolve(true)
+    if (next) {
+      this.permissions.allow(next.sessionId, next.toolName, next.params)
+      next.resolve(true)
+    }
   }
 
   resolveAllowOnce(): void {
+    if (this.permissionQueue.length === 0) return
     const next = this.permissionQueue.shift()
     if (next) {
-      this.permissions.allowOnce(next.sessionId, next.toolName)
       this.onceAllowed.add(`${next.sessionId}:${next.toolName}`)
-      next.resolve(false)
+      this.permissions.allow(next.sessionId, next.toolName, next.params)
+      next.resolve(true)
     }
   }
 
   resolveDeny(): void {
+    if (this.permissionQueue.length === 0) return
     const next = this.permissionQueue.shift()
-    if (next) next.resolve(false)
+    if (next) {
+      this.permissions.deny(next.sessionId, next.toolName, next.params)
+      next.resolve(false)
+    }
+  }
+
+  private drainPermissionQueue(): void {
+    while (this.permissionQueue.length > 0) {
+      const orphan = this.permissionQueue.shift()
+      if (orphan) orphan.resolve(false)
+    }
+  }
+
+  private buildProviderConfig(
+    descriptor: ProviderDescriptor,
+    credentials: {
+      apiKey?: string
+      oauthToken?: string
+      baseUrl?: string
+      model?: string
+      headers?: Record<string, string>
+    }
+  ): ProviderConfig {
+    return {
+      type: this.getProviderType(descriptor),
+      apiKey: credentials.oauthToken || credentials.apiKey || "",
+      model: credentials.model || descriptor.defaultModel,
+      baseUrl: credentials.baseUrl || descriptor.baseUrl,
+      headers: {
+        ...(descriptor.headers || {}),
+        ...(credentials.headers || {}),
+      },
+    }
+  }
+
+  private getProviderType(descriptor: ProviderDescriptor): ProviderConfig["type"] {
+    if (descriptor.transport === "anthropic-native") return "anthropic"
+    if (descriptor.transport === "gemini" || descriptor.transport === "gemini-native") return "gemini"
+    if (descriptor.id === "ollama") return "ollama"
+    if (descriptor.transport === "custom") return "openai-compatible"
+    return "openai"
+  }
+
+  private createDescriptorFromConfig(pc: ProviderConfig): ProviderDescriptor {
+    const model = pc.model || (pc.type === "anthropic" ? "claude-sonnet-4-20250514" : pc.type === "gemini" ? "gemini-2.5-pro" : pc.type === "ollama" ? "qwen2.5-coder:7b" : "gpt-4o")
+
+    let transport: ProviderDescriptor["transport"] = "openai-compatible"
+    if (pc.type === "anthropic") transport = "anthropic-native"
+    else if (pc.type === "gemini") transport = "gemini-native"
+    else if (pc.type === "openai-compatible") transport = "custom"
+
+    return {
+      id: pc.type || "custom",
+      name: pc.type || "Custom",
+      vendor: pc.type || "Custom",
+      transport,
+      authType: pc.type === "ollama" ? "none" : "api-key",
+      envVars: [],
+      baseUrl: pc.baseUrl,
+      defaultModel: model,
+      models: [model],
+      headers: pc.headers,
+    }
+  }
+
+  rewindToCheckpoint(index: number): boolean {
+    if (this.isRunning) return false
+    if (!this.sessionId) return false
+    const success = this.sessions.rewindToUserMessage(this.sessionId, index)
+    if (success) {
+      this.systemPromptSent = false
+      const msgs = this.sessions.getMessages(this.sessionId)
+      this.onEvent({ type: "messages_reset", messages: msgs })
+    }
+    return success
+  }
+
+  private async loadCustomTools(): Promise<void> {
+    const dirs = [
+      join(homedir(), ".argent", "tool"),
+      join(this.config.getWorkingDir(), ".argent", "tool"),
+    ]
+
+    for (const dir of dirs) {
+      let entries: string[]
+      try {
+        entries = readdirSync(dir)
+      } catch {
+        continue
+      }
+
+      for (const entry of entries) {
+        if (!entry.endsWith(".js") && !entry.endsWith(".mjs")) continue
+        const fullPath = join(dir, entry)
+        try {
+          const mod = (await import(fullPath)) as {
+            default?: ToolDef | ToolDef[]
+            [key: string]: unknown
+          }
+
+          if (mod.default) {
+            if (Array.isArray(mod.default)) {
+              for (const tool of mod.default) {
+                if (this.isToolDef(tool)) this.tools.register(tool)
+              }
+            } else if (this.isToolDef(mod.default)) {
+              this.tools.register(mod.default)
+            }
+          }
+
+          for (const value of Object.values(mod)) {
+            if (value && typeof value === "object" && this.isToolDef(value as ToolDef)) {
+              const tool = value as ToolDef
+              if (!this.tools.get(tool.name)) {
+                this.tools.register(tool)
+              }
+            }
+          }
+        } catch (err) {
+          console.error("[argent] Failed to load custom tool " + fullPath + ":", err instanceof Error ? err.message : String(err))
+        }
+      }
+    }
+  }
+
+  private isToolDef(value: unknown): value is ToolDef {
+    if (!value || typeof value !== "object") return false
+    const t = value as Record<string, unknown>
+    return typeof t.name === "string" && typeof t.execute === "function"
   }
 
   private buildSystemMessage(agent: Agent): string {
-    const parts = [agent.systemPrompt]
+    const parts: string[] = []
+
+    if (this.sessionId) {
+      const session = this.sessions.get(this.sessionId)
+      if (session?.metadata?.summary) {
+        parts.push(`Previous conversation summary:\n${session.metadata.summary}`)
+        parts.push("")
+      }
+    }
+
+    const wd = this.config.getWorkingDir()
+    const memoryPath = `${wd}/MEMORY.md`
+    if (existsSync(memoryPath)) {
+      try {
+        const memoryContent = readFileSync(memoryPath, "utf-8")
+        if (memoryContent.trim()) {
+          parts.push(`Persistent project memory (${memoryPath}):`)
+          parts.push(memoryContent.trim())
+          parts.push("")
+        }
+      } catch {}
+    }
+
+    parts.push(agent.systemPrompt)
 
     parts.push(`\nCurrent date: ${new Date().toISOString().split("T")[0]}`)
-    parts.push(`Working directory: ${this.config.getWorkingDir()}`)
+    parts.push(`Working directory: ${wd}`)
 
     const allowed = this.tools.listAllowed(agent.tools)
     parts.push(`\nAvailable tools: ${allowed.map((t) => t.name).join(", ")}`)

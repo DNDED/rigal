@@ -1,5 +1,7 @@
 import type { ToolDef, ToolContext, ToolResult } from "@argent/core"
+import { resolveSafePath, isSecretPath } from "@argent/core"
 import { readFileSync, writeFileSync } from "fs"
+import { isAbsolute, resolve } from "path"
 
 export const editTool: ToolDef = {
   name: "edit",
@@ -17,17 +19,40 @@ export const editTool: ToolDef = {
   permission: { type: "ask", reason: "Editing files modifies source code" },
 
   async execute(params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-    const filePath = params.filePath as string
+    if (typeof params.filePath !== "string") return { content: [{ type: "text", text: "filePath must be a string" }], isError: true }
+    if (typeof params.oldString !== "string") return { content: [{ type: "text", text: "oldString must be a string" }], isError: true }
+    if (typeof params.newString !== "string") return { content: [{ type: "text", text: "newString must be a string" }], isError: true }
+    const rawPath = params.filePath as string
     const oldString = params.oldString as string
     const newString = params.newString as string
     const replaceAll = params.replaceAll as boolean
+
+    if (oldString === "") {
+      return { content: [{ type: "text", text: "oldString cannot be empty" }], isError: true }
+    }
+
+    const filePath = isAbsolute(rawPath) ? rawPath : resolve(ctx.workingDirectory, rawPath)
+    const safePath = resolveSafePath(filePath, ctx)
+    if (!safePath) {
+      return {
+        content: [{ type: "text", text: `Path outside workspace: ${filePath}` }],
+        isError: true,
+      }
+    }
+
+    if (isSecretPath(filePath)) {
+      return {
+        content: [{ type: "text", text: `Cannot write to "${filePath}" — it matches a secret file pattern.` }],
+        isError: true,
+      }
+    }
 
     if (oldString === newString) {
       return { content: [{ type: "text", text: "oldString and newString are identical — no changes made" }] }
     }
 
     try {
-      const content = readFileSync(filePath, "utf-8")
+      const content = readFileSync(safePath, "utf-8")
 
       if (replaceAll) {
         const count = content.split(oldString).length - 1
@@ -35,7 +60,7 @@ export const editTool: ToolDef = {
           return { content: [{ type: "text", text: `"${oldString.slice(0, 60)}" not found in ${filePath}` }], isError: true }
         }
         const newContent = content.replaceAll(oldString, newString)
-        writeFileSync(filePath, newContent, "utf-8")
+        writeFileSync(safePath, newContent, "utf-8")
         return { content: [{ type: "text", text: `Replaced ${count} occurrences of "${oldString.slice(0, 40)}..." in ${filePath}` }] }
       }
 
@@ -53,11 +78,12 @@ export const editTool: ToolDef = {
       }
 
       const newContent = content.slice(0, index) + newString + content.slice(index + oldString.length)
-      writeFileSync(filePath, newContent, "utf-8")
+      writeFileSync(safePath, newContent, "utf-8")
       return { content: [{ type: "text", text: `Replaced 1 occurrence in ${filePath}` }] }
     } catch (err) {
+      console.error("[argent] edit:", err instanceof Error ? err.message : String(err))
       return {
-        content: [{ type: "text", text: `Failed to edit "${filePath}": ${err instanceof Error ? err.message : String(err)}` }],
+        content: [{ type: "text", text: "Failed to edit file" }],
         isError: true,
       }
     }

@@ -1,6 +1,31 @@
 import type { ToolDef, ToolContext, ToolResult } from "@argent/core"
+import { resolveSafePath, isSecretPath } from "@argent/core"
 import { readFileSync, readdirSync, statSync } from "fs"
-import { join, relative } from "path"
+import { join, relative, isAbsolute, resolve } from "path"
+
+function isReDoS(pattern: string): boolean {
+  let cleaned = ""
+  let i = 0
+  let classDepth = 0
+  while (i < pattern.length) {
+    if (pattern[i] === "\\" && i + 1 < pattern.length) {
+      cleaned += " "
+      i += 2
+      continue
+    }
+    if (pattern[i] === "[") classDepth++
+    if (pattern[i] === "]") classDepth--
+    if (classDepth === 0) cleaned += pattern[i]
+    i++
+  }
+
+  if (/[)\]}][+*{]/.test(cleaned)) return true
+
+  if (/\{(\d{4,})[,}]/.test(pattern)) return true
+  if (/\{,\d{4,}\}/.test(pattern)) return true
+
+  return false
+}
 
 export const grepTool: ToolDef = {
   name: "grep",
@@ -17,12 +42,35 @@ export const grepTool: ToolDef = {
   permission: { type: "allow" },
 
   async execute(params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+    if (typeof params.pattern !== "string") return { content: [{ type: "text", text: "pattern must be a string" }], isError: true }
     const patternStr = params.pattern as string
-    const include = (params.include as string) || "*"
-    const searchPath = (params.path as string) || ctx.workingDirectory
+    const include = (params.include as string) ?? "*"
+    const rawPath = (params.path as string) ?? ctx.workingDirectory
+    const resolvedPath = isAbsolute(rawPath) ? rawPath : resolve(ctx.workingDirectory, rawPath)
+    const searchPath = resolveSafePath(resolvedPath, ctx)
+    if (!searchPath) {
+      return {
+        content: [{ type: "text", text: `Path outside workspace: ${resolvedPath}` }],
+        isError: true,
+      }
+    }
+
+    if (patternStr.length > 500) {
+      return { content: [{ type: "text", text: "Pattern too long (max 500 characters)" }], isError: true }
+    }
+
+    if (isReDoS(patternStr)) {
+      return { content: [{ type: "text", text: "Pattern contains potentially dangerous nested quantifiers" }], isError: true }
+    }
+
+    let regex: RegExp
+    try {
+      regex = new RegExp(patternStr, "i")
+    } catch {
+      return { content: [{ type: "text", text: `Invalid regex pattern: ${patternStr}` }], isError: true }
+    }
 
     try {
-      const regex = new RegExp(patternStr, "i")
       const results: string[] = []
       await grepDir(searchPath, regex, include, searchPath, results)
 
@@ -32,8 +80,9 @@ export const grepTool: ToolDef = {
 
       return { content: [{ type: "text", text: results.join("\n") || "(no matches)" }] }
     } catch (err) {
+      console.error("[argent] grep:", err instanceof Error ? err.message : String(err))
       return {
-        content: [{ type: "text", text: `Grep failed: ${err instanceof Error ? err.message : String(err)}` }],
+        content: [{ type: "text", text: "Content search failed" }],
         isError: true,
       }
     }
@@ -66,7 +115,9 @@ async function grepDir(dir: string, regex: RegExp, includePattern: string, rootD
       continue
     }
 
-    if (include !== "*" && !includeRegex.test(entry.name)) continue
+    if (includePattern !== "*" && !includeRegex.test(entry.name)) continue
+
+    if (isSecretPath(fullPath)) continue
 
     try {
       const stat = statSync(fullPath)

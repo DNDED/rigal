@@ -16,8 +16,6 @@ This file provides instructions for ARGENT when working in this repository.
 - `packages/argent/src/tools/` — Built-in tool implementations
 - `packages/argent/src/ui/` — Premium TUI components
 - `packages/argent/src/cli/` — Engine, commands, main app
-- `packages/app/` — SolidJS web app (future)
-- `packages/desktop/` — Electron desktop (future)
 
 ## Code Conventions
 - TypeScript with ESNext target

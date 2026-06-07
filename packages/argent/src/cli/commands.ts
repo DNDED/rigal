@@ -1,11 +1,10 @@
-import type { Agent, ProviderConfig } from "@argent/core"
-import type { ArgentEngine, UIEvent } from "./engine.js"
+import type { ArgentEngine } from "./engine.js"
+import type { CommandDef } from "@argent/core"
 import { providerCommand } from "./commands/provider.js"
 import { modelCommand } from "./commands/model.js"
 import { oauthCommand } from "./commands/oauth.js"
 import { renderSetupPrompt, processSetupSelection, renderApiKeyPrompt } from "./commands/setup.js"
-import { listProviders, getProvider, PROVIDERS } from "@argent/integrations"
-import type { ProviderDescriptor } from "@argent/integrations"
+import { listProviders } from "@argent/integrations"
 
 import { compactCommand } from "./commands/compact.js"
 import { forkCommand } from "./commands/fork.js"
@@ -40,14 +39,38 @@ import { issueCommand } from "./commands/issue.js"
 import { fixCommand } from "./commands/fix.js"
 import { explainCommand } from "./commands/explain.js"
 
-import { paletteCommand, getPaletteActions } from "./commands/palette.js"
+import { paletteCommand } from "./commands/palette.js"
 import { shortcutsCommand } from "./commands/shortcuts.js"
+import { swarmCommand } from "./commands/swarm.js"
 
 export class CommandHandler {
   private engine: ArgentEngine
+  private customCommands: Map<string, CommandDef> = new Map()
 
   constructor(engine: ArgentEngine) {
     this.engine = engine
+    this.loadCustomCommands()
+  }
+
+  loadCustomCommands(): void {
+    const defs = this.engine.config.getCommands()
+    const builtins = new Set([
+      "/help", "/agent", "/model", "/provider", "/oauth", "/setup",
+      "/clear", "/undo", "/exit", "/quit", "/status",
+      "/compact", "/fork", "/resume", "/rewind", "/branch", "/rename",
+      "/diff", "/review", "/lint", "/security", "/test",
+      "/cost", "/doctor", "/stats", "/context", "/history",
+      "/update", "/install", "/memory", "/theme", "/vim", "/voice",
+      "/spec", "/init", "/pr", "/issue", "/fix", "/explain",
+      "/palette", "/shortcuts", "/swarm",
+    ])
+    for (const cmd of defs) {
+      const name = `/${cmd.name}`
+      if (builtins.has(name)) {
+        console.error("[argent] Custom command /" + cmd.name + " shadows built-in — custom wins")
+      }
+      this.customCommands.set(name, cmd)
+    }
   }
 
   handle(input: string): { handled: boolean; message?: string } {
@@ -60,6 +83,11 @@ export class CommandHandler {
     if (!cmd) return { handled: true }
 
     addToHistory(cmd + (args.length ? " " + args.join(" ") : ""))
+
+    const custom = this.customCommands.get(cmd)
+    if (custom) {
+      return { handled: true, message: `CUSTOM_COMMAND:${custom.name}` }
+    }
 
     switch (cmd) {
       case "/help":
@@ -102,7 +130,9 @@ export class CommandHandler {
       case "/oauth": {
         const oauthMgr = this.engine.getOAuthManager()
         oauthCommand(args, oauthMgr).then((msg) => {
-          this.engine.emitStatusMessage(msg)
+          this.engine.emitInfoMessage(msg)
+        }).catch((err) => {
+          this.engine.emitErrorMessage("OAuth error: " + (err instanceof Error ? err.message : String(err)))
         })
         return { handled: true, message: "Starting OAuth flow..." }
       }
@@ -112,11 +142,11 @@ export class CommandHandler {
       }
 
       case "/clear":
-        this.engine.sessionId = null
+        this.engine.clearSession()
         return { handled: true, message: "Session cleared. Starting fresh." }
 
       case "/undo":
-        return { handled: true, message: "Undo — reverting last change." }
+        return { handled: true, message: this.engine.undoLastExchange() ? "Undo — removed the last response." : "Nothing to undo." }
 
       case "/exit":
       case "/quit":
@@ -136,7 +166,7 @@ export class CommandHandler {
         return { handled: true, message: resumeCommand(args, this.engine) }
 
       case "/rewind":
-        return { handled: true, message: rewindCommand(this.engine) }
+        return { handled: true, message: rewindCommand(args, this.engine) }
 
       case "/branch":
         return { handled: true, message: branchCommand(args, this.engine) }
@@ -149,7 +179,7 @@ export class CommandHandler {
         return { handled: true, message: diffCommand(this.engine) }
 
       case "/review":
-        return { handled: true, message: reviewCommand(this.engine) }
+        return { handled: true, message: reviewCommand(args, this.engine) }
 
       case "/lint":
         return { handled: true, message: lintCommand(this.engine) }
@@ -213,6 +243,10 @@ export class CommandHandler {
 
       case "/explain":
         return { handled: true, message: explainCommand(args, this.engine) }
+
+      // ─── Swarm Commands ───
+      case "/swarm":
+        return { handled: true, message: swarmCommand(args, this.engine.swarm, this.engine, this.engine.sessionId || "none") }
 
       // ─── Discovery Commands ───
       case "/palette":

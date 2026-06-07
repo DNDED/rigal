@@ -21,7 +21,8 @@ argent
 git clone https://github.com/DNDED/argent.git
 cd argent
 bun install
-cd packages/argent && npm link
+bun run build
+npm link ./packages/argent
 argent
 ```
 
@@ -84,17 +85,63 @@ Switch agents with `Tab` key.
 ## Commands
 
 ```
-/provider [name]    Switch provider (shows all 37)
-/model [name]       Switch model within current provider
-/oauth <provider>   Start OAuth flow (no API key needed)
-/oauth status       Show OAuth token status
-/setup              Re-run first-run setup
-/agent [name]       Switch agent (build, plan)
-/clear              New session
-/undo               Revert last change
-/status             Show status
-/help               Show all commands
-/exit               Quit
+Core:
+  /agent [name]        Switch agent (build, plan, explore)
+  /model [name]        Switch AI model
+  /provider [name|#]   Change provider
+  /oauth <provider>    Start OAuth flow
+  /setup               Re-run first-run setup
+  /clear               Start a new session
+  /undo                Revert last change
+  /status              Show current status
+  /help                Show all commands
+  /exit                Quit
+
+Session:
+  /compact             Summarize and reduce context
+  /fork [name]         Fork current session
+  /resume [session]    Resume a past session
+  /rewind              Show checkpoint options
+  /branch [name]       Create named session branch
+  /rename [name]       Rename current session
+
+Review:
+  /diff                Show inline diffs
+  /review              Review pending changes
+  /lint                Run linter and show results
+  /security            Run security scan on changes
+  /test [pattern]      Run tests with optional pattern
+
+Info:
+  /cost                Show detailed cost breakdown
+  /doctor              Diagnose configuration issues
+  /stats               Show usage statistics
+  /context             Show context window usage
+  /history             Show recent command history
+
+Setup:
+  /update              Check for ARGENT updates
+  /install             Install/upgrade ARGENT
+  /memory              View/edit persistent memory
+  /theme [name]        Switch theme
+  /vim                 Toggle vim mode keybindings
+  /voice               Toggle voice input mode
+
+Workflow:
+  /spec [topic]        Start spec-driven development
+  /init                Generate AGENTS.md for project
+  /pr [title]          Create a PR with current changes
+  /issue [title]       Create a GitHub issue
+  /fix [issue]         Attempt to fix a GitHub issue
+  /explain [code]      Explain a piece of code
+
+Discovery:
+  /shortcuts           Show keyboard shortcuts
+  /palette             Open command palette
+  Ctrl+K               Open command palette
+
+Swarm:
+  /swarm [n tasks]     Dispatch parallel subagent tasks
 ```
 
 ## OAuth (No API Key Needed)
@@ -124,7 +171,7 @@ Create a `.argent/` directory in your project:
 .argent/
 ├── argent.jsonc        # Provider, permission, MCP config
 ├── agent/             # Custom agent definitions (*.md)
-│   └── my-agent.md
+│   └── my-agent.agent.md
 ├── command/           # Custom slash commands (*.md)
 │   └── deploy.md
 └── tool/              # Custom tools (*.ts)
@@ -160,7 +207,7 @@ git clone https://github.com/DNDED/argent.git
 cd argent
 bun install
 bun run build
-npm link
+npm link ./packages/argent
 ```
 
 ## Features
@@ -174,7 +221,7 @@ npm link
 - **First-run setup** — Interactive wizard to choose your provider
 - **OAuth** — Browser-based login for Codex, xAI, Gemini, Qwen, MiniMax, Nous
 - **Auto-detect** — Automatically detects API keys from environment variables
-- **VS Code, Desktop, Web** — Coming soon
+- **Headless mode** — Scriptable: pipe prompts via stdin with `argent --headless -y`
 
 ## Building From Source
 

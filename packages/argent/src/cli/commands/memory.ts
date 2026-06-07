@@ -1,7 +1,6 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
-import { join, dirname } from "path"
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs"
+import { join } from "path"
 
 export function memoryCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []
@@ -48,15 +47,7 @@ export function memoryCommand(args: string[], engine: ArgentEngine): string {
   const subcmd = args[0]?.toLowerCase() ?? ""
 
   if (subcmd === "edit") {
-    try {
-      const { execSync } = require("child_process")
-      const editor = process.env.EDITOR || process.env.VISUAL || "nano"
-      execSync(`${editor} ${memoryPath}`, { stdio: "inherit", timeout: 300000 })
-      lines.push("  ● MEMORY.md updated.")
-    } catch {
-      lines.push("  ● Could not open editor.")
-      lines.push(`  File is at: ${memoryPath}`)
-    }
+    lines.push(`  MEMORY.md is at ${memoryPath}. Open it in your editor.`)
     return lines.join("\n")
   }
 
@@ -72,7 +63,6 @@ export function memoryCommand(args: string[], engine: ArgentEngine): string {
 
   if (subcmd === "delete") {
     try {
-      const { unlinkSync } = require("fs")
       unlinkSync(memoryPath)
       lines.push("  ● MEMORY.md deleted.")
     } catch (err) {

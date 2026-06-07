@@ -25,10 +25,10 @@ describe("PermissionService", () => {
   test("uses fallback when no handler and default is ask", async () => {
     const perms = new PermissionService({ bash: "ask" })
     const result = await perms.check("bash", {}, "session-1")
-    expect(result).toBe(true)
+    expect(result).toBe(false)
   })
 
-  test("caches decisions per session", async () => {
+  test("re-asks handler until a decision is stored", async () => {
     const perms = new PermissionService({ bash: "ask" })
     let called = 0
     perms.setHandler(async () => { called++; return false })
@@ -36,7 +36,15 @@ describe("PermissionService", () => {
     await perms.check("bash", {}, "session-1")
     await perms.check("bash", {}, "session-1")
 
-    expect(called).toBe(1)
+    expect(called).toBe(2)
+  })
+
+  test("allow caches decisions per session", async () => {
+    const perms = new PermissionService({ bash: "ask" })
+    perms.allow("session-1", "bash")
+
+    const result = await perms.check("bash", {}, "session-1")
+    expect(result).toBe(true)
   })
 
   test("allowOnce overrides", async () => {
@@ -45,6 +53,14 @@ describe("PermissionService", () => {
 
     const result = await perms.check("bash", {}, "session-1")
     expect(result).toBe(true)
+  })
+
+  test("deny caches decisions per session", async () => {
+    const perms = new PermissionService({ bash: "ask" })
+    perms.deny("session-1", "bash")
+
+    const result = await perms.check("bash", {}, "session-1")
+    expect(result).toBe(false)
   })
 
   test("reset clears decisions", async () => {

@@ -2,7 +2,6 @@ import type { LLMProvider, ProviderOptions } from "@argent/llm"
 import type { ProviderDescriptor } from "./descriptors/provider.js"
 import { createAnthropicProvider } from "@argent/llm/anthropic"
 import { createOpenAIProvider } from "@argent/llm/openai"
-import { createOllamaProvider } from "@argent/llm/ollama"
 import { createGeminiProvider } from "@argent/llm/gemini"
 
 export interface ProviderCredentials {
@@ -10,21 +9,30 @@ export interface ProviderCredentials {
   oauthToken?: string
   baseUrl?: string
   model?: string
+  headers?: Record<string, string>
 }
 
 export function createProviderFromDescriptor(
   descriptor: ProviderDescriptor,
   credentials: ProviderCredentials
 ): LLMProvider {
-  const apiKey = credentials.apiKey || credentials.oauthToken || ""
+  const apiKey = credentials.apiKey || credentials.oauthToken || (descriptor.authType === "none" ? "none" : "")
   const baseUrl = credentials.baseUrl || descriptor.baseUrl || ""
   const model = credentials.model || descriptor.defaultModel
+  const headers = {
+    ...(descriptor.headers || {}),
+    ...(credentials.headers || {}),
+  }
 
   const options: ProviderOptions = {
     apiKey,
     baseUrl,
     model,
-    headers: descriptor.headers,
+    headers,
+  }
+
+  if (descriptor.authType === "aws-sdk") {
+    throw new Error("AWS Bedrock SigV4 auth not yet supported")
   }
 
   switch (descriptor.transport) {
@@ -39,8 +47,8 @@ export function createProviderFromDescriptor(
       return createOpenAIProvider({
         ...options,
         headers: {
-          ...descriptor.headers,
           "OpenAI-Beta": "responses=v1",
+          ...headers,
         },
       })
 
@@ -67,7 +75,7 @@ export function createProviderFromEnv(descriptor: ProviderDescriptor): LLMProvid
     }
   }
 
-  if (!apiKey && descriptor.authType !== "none" && descriptor.authType !== "oauth") {
+  if (!apiKey && descriptor.authType !== "none") {
     return null
   }
 

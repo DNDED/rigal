@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
 
 export function fixCommand(args: string[], engine: ArgentEngine): string {
@@ -53,11 +52,17 @@ export function fixCommand(args: string[], engine: ArgentEngine): string {
   lines.push(`  Fetching issue #${issueNum}...`)
   lines.push("")
 
+  if (!/^\d+$/.test(issueNum)) {
+    lines.push(`  Invalid issue number: ${issueNum}`)
+    return lines.join("\n")
+  }
+
   try {
     const issueData = execSync(`gh issue view ${issueNum} --json title,body,state,labels 2>&1`, {
       cwd: wd,
       encoding: "utf-8",
       timeout: 15000,
+      shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
     })
 
     try {

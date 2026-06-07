@@ -1,6 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import type { Session } from "@argent/core"
-import { theme } from "../../ui/theme.js"
 
 export function resumeCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []
@@ -65,7 +63,11 @@ export function resumeCommand(args: string[], engine: ArgentEngine): string {
     return lines.join("\n")
   }
 
-  engine.sessionId = targetId
+  const ok = engine.resumeSession(targetId)
+  if (!ok) {
+    lines.push(`  Failed to resume session "${targetId}".`)
+    return lines.join("\n")
+  }
   const resumed = engine.sessions.get(targetId)!
 
   lines.push(`  ● Resumed session ${resumed.id.slice(-12)}`)

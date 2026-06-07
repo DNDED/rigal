@@ -20,7 +20,7 @@ export interface LLMProvider {
   readonly name: string
   readonly models: string[]
   chat(messages: Message[], tools?: unknown[], options?: Partial<ProviderOptions>): Promise<ProviderResponse>
-  stream(messages: Message[], tools?: unknown[], options?: Partial<ProviderOptions>): AsyncGenerator<ProviderStreamEvent>
+  stream(messages: Message[], tools?: unknown[], options?: Partial<ProviderOptions>, signal?: AbortSignal): AsyncGenerator<ProviderStreamEvent>
 }
 
 export type ProviderStreamEvent =

@@ -18,15 +18,19 @@ export interface OAuthStatus {
   email?: string
 }
 
-const SUPPORTED_PROVIDERS = ["codex", "xai", "gemini", "qwen", "minimax", "nous"] as const
+const SUPPORTED_PROVIDERS = ["codex", "xai", "xai-oauth", "gemini", "gemini-cli", "qwen", "qwen-oauth", "minimax", "minimax-oauth", "nous"] as const
 type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number]
 
 const OAUTH_HANDLERS: Record<SupportedProvider, (store: AuthStore) => Promise<OAuthToken>> = {
   codex: startCodexOAuth,
   xai: startXaiOAuth,
+  "xai-oauth": startXaiOAuth,
   gemini: startGeminiOAuth,
+  "gemini-cli": startGeminiOAuth,
   qwen: startQwenOAuth,
+  "qwen-oauth": startQwenOAuth,
   minimax: startMinimaxOAuth,
+  "minimax-oauth": startMinimaxOAuth,
   nous: startNousOAuth,
 }
 
@@ -38,14 +42,21 @@ export class OAuthManager {
   }
 
   async startOAuth(provider: string): Promise<OAuthToken> {
-    const key = provider.toLowerCase() as SupportedProvider
-    const handler = OAUTH_HANDLERS[key]
+    const key = provider.toLowerCase()
+    if (!SUPPORTED_PROVIDERS.includes(key as SupportedProvider)) {
+      throw new Error(
+        `Unsupported OAuth provider "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`
+      )
+    }
+    const handler = OAUTH_HANDLERS[key as SupportedProvider]
     if (!handler) {
       throw new Error(
         `Unsupported OAuth provider "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`
       )
     }
-    return handler(this.authStore)
+    const token = await handler(this.authStore)
+    await this.authStore.setToken(provider, token)
+    return token
   }
 
   async getAccessToken(provider: string): Promise<string | null> {
@@ -59,8 +70,10 @@ export class OAuthManager {
 
     if (existing.refreshToken) {
       try {
+        const refreshUrl = getRefreshUrl(provider)
+        if (!refreshUrl) return null
         const refreshed = await this.authStore.refreshToken(provider, async (refreshToken) => {
-          const res = await fetch(getRefreshUrl(provider), {
+          const res = await fetch(refreshUrl, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({
@@ -87,7 +100,8 @@ export class OAuthManager {
           }
         })
         return refreshed.accessToken
-      } catch {
+      } catch (err) {
+        console.error("[argent] OAuth token refresh failed:", err instanceof Error ? err.message : String(err))
         return null
       }
     }
@@ -107,8 +121,8 @@ export class OAuthManager {
     }
   }
 
-  revokeToken(provider: string): void {
-    this.authStore.deleteToken(provider)
+  async revokeToken(provider: string): Promise<void> {
+    await this.authStore.deleteToken(provider)
   }
 
   getToken(providerId: string): OAuthToken | undefined {
@@ -138,10 +152,10 @@ export class OAuthManager {
     return Object.keys(tokens).map((id) => this.getStatus(id))
   }
 
-  revoke(providerId: string): boolean {
+  async revoke(providerId: string): Promise<boolean> {
     const token = this.authStore.getToken(providerId)
     if (!token) return false
-    this.authStore.deleteToken(providerId)
+    await this.authStore.deleteToken(providerId)
     return true
   }
 
@@ -151,7 +165,8 @@ export class OAuthManager {
     }
     try {
       return await this.startOAuth(provider.id)
-    } catch {
+    } catch (err) {
+      console.error("[argent] OAuth flow failed:", err instanceof Error ? err.message : String(err))
       return null
     }
   }
@@ -163,6 +178,8 @@ function getRefreshUrl(provider: string): string {
     xai: "https://auth.x.ai/oauth/token",
     gemini: "https://oauth2.googleapis.com/token",
     qwen: "https://chat.qwen.ai/api/v1/oauth2/token",
+    minimax: "",
+    nous: "",
   }
   return urls[provider] ?? ""
 }
@@ -173,6 +190,8 @@ function getRefreshClientId(provider: string): string {
     xai: "argent-cli",
     gemini: "argent-cli.apps.googleusercontent.com",
     qwen: "argent-cli",
+    minimax: "argent-cli",
+    nous: "argent-cli",
   }
   return ids[provider] ?? "argent-cli"
 }

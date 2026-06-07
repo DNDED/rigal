@@ -38,6 +38,6 @@ export { issueCommand } from "./issue.js"
 export { fixCommand } from "./fix.js"
 export { explainCommand } from "./explain.js"
 
-export { paletteCommand, getPaletteActions } from "./palette.js"
+export { paletteCommand } from "./palette.js"
 export type { PaletteAction } from "./palette.js"
 export { shortcutsCommand } from "./shortcuts.js"

@@ -5,12 +5,9 @@ import { theme } from "../theme.js"
 interface PermissionPromptProps {
   toolName: string
   reason: string
-  onAllow: () => void
-  onDeny: () => void
-  onAllowOnce: () => void
 }
 
-export function PermissionPrompt({ toolName, reason, onAllow, onDeny, onAllowOnce }: PermissionPromptProps) {
+export function PermissionPrompt({ toolName, reason }: PermissionPromptProps) {
   return (
     <Box
       flexDirection="column"

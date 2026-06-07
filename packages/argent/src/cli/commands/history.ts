@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
 let commandHistory: string[] = []
 const MAX_HISTORY = 100

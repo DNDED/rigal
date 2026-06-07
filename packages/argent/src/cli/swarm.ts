@@ -1,7 +1,8 @@
-import type { Agent, ToolContext, ToolResultMessage, UserMessage, AssistantMessage } from "@argent/core"
-import { createAnthropicProvider, createOpenAIProvider, createOllamaProvider, type LLMProvider } from "@argent/llm"
+import type { Agent, ToolContext, ToolResultMessage, ToolResult, UserMessage, AssistantMessage } from "@argent/core"
+import type { LLMProvider } from "@argent/llm"
+import { createProviderFromDescriptor, PROVIDERS, getProvider } from "@argent/integrations"
+import type { ProviderDescriptor } from "@argent/integrations"
 import type { ArgentEngine } from "./engine.js"
-import { PROVIDERS } from "@argent/integrations"
 
 export interface SwarmTask {
   id: string
@@ -19,18 +20,31 @@ export interface SwarmTask {
 }
 
 let taskCounter = 0
+let completionCounter = 0
 
 export class SwarmEngine {
   private tasks: Map<string, SwarmTask> = new Map()
   private runningTasks: Map<string, AbortController> = new Map()
   private engine: ArgentEngine
+  onTaskUpdate: (() => void) | null = null
 
   constructor(engine: ArgentEngine) {
     this.engine = engine
   }
 
+  private emitUpdate(): void {
+    if (this.onTaskUpdate) this.onTaskUpdate()
+  }
+
+  private pruneOldTasks(): void {
+    if (this.tasks.size <= 100) return
+    const entries = Array.from(this.tasks.entries())
+    const sorted = entries.sort(([, a], [, b]) => (b.startTime ?? 0) - (a.startTime ?? 0))
+    this.tasks = new Map(sorted.slice(0, 100))
+  }
+
   spawn(tasks: Omit<SwarmTask, "id" | "status" | "output">[]): SwarmTask[] {
-    return tasks.map((t) => {
+    const created = tasks.map((t) => {
       const id = `swarm-${Date.now()}-${++taskCounter}`
       const task: SwarmTask = {
         id,
@@ -46,28 +60,32 @@ export class SwarmEngine {
       this.tasks.set(id, task)
       return task
     })
+    this.emitUpdate()
+    return created
   }
 
   async execute(taskId: string, sessionId: string): Promise<void> {
     const task = this.tasks.get(taskId)
     if (!task) throw new Error(`Task ${taskId} not found`)
 
+    if (task.status === "running" || task.status === "cancelled") return
+
     const controller = new AbortController()
     this.runningTasks.set(taskId, controller)
 
     task.status = "running"
     task.startTime = Date.now()
+    this.emitUpdate()
+
+    const subSession = this.engine.sessions.create(
+      task.agentType,
+      { provider: "openai", model: task.model || "" },
+      this.engine.config.getWorkingDir()
+    )
 
     try {
       const agent = this.engine.config.getAgent(task.agentType)
       if (!agent) throw new Error(`Agent "${task.agentType}" not found`)
-
-      const pc = this.engine.config.getProvider()
-      const subSession = this.engine.sessions.create(
-        task.agentType,
-        { provider: pc?.type || "openai", model: task.model || pc?.model || "" },
-        this.engine.config.getWorkingDir()
-      )
 
       const userMsg: UserMessage = {
         role: "user",
@@ -98,11 +116,15 @@ export class SwarmEngine {
     } finally {
       task.endTime = Date.now()
       this.runningTasks.delete(taskId)
+      this.engine.sessions.delete(subSession.id)
+      this.emitUpdate()
+      completionCounter++
+      if (completionCounter % 10 === 0) this.pruneOldTasks()
     }
   }
 
   async executeAll(taskIds: string[], sessionId: string): Promise<void> {
-    await Promise.all(taskIds.map((id) => this.execute(id, sessionId)))
+    await Promise.allSettled(taskIds.map((id) => this.execute(id, sessionId)))
   }
 
   cancel(taskId: string): void {
@@ -113,6 +135,7 @@ export class SwarmEngine {
     const task = this.tasks.get(taskId)
     if (task && task.status === "pending") {
       task.status = "cancelled"
+      this.emitUpdate()
     }
   }
 
@@ -142,35 +165,45 @@ export class SwarmEngine {
     const pc = this.engine.config.getProvider()
     if (!pc) throw new Error("No provider configured")
 
-    const model = overrideModel || pc.model || "gpt-4o"
+    const desc = this.engine.getCurrentProviderDescriptor() || this.resolveDescriptor(pc)
+    const model = overrideModel || pc.model || desc.defaultModel
 
-    const desc = Object.values(PROVIDERS).find((p) => {
-      if (pc.type === "anthropic" && p.id === "anthropic") return true
-      if (pc.type === "ollama" && p.id === "ollama") return true
-      if (pc.baseUrl && p.baseUrl === pc.baseUrl) return true
-      return false
-    }) || undefined
+    return createProviderFromDescriptor(desc, {
+      apiKey: pc.apiKey,
+      oauthToken: desc.authType === "oauth" ? this.engine.getOAuthManager().getToken(desc.id)?.accessToken : undefined,
+      baseUrl: pc.baseUrl,
+      model,
+      headers: pc.headers,
+    })
+  }
 
-    if (desc?.transport === "anthropic-native" || pc.type === "anthropic") {
-      return createAnthropicProvider({
-        apiKey: pc.apiKey || "",
-        baseUrl: pc.baseUrl || desc?.baseUrl,
-        model,
-        headers: pc.headers || desc?.headers,
-      })
-    } else if (pc.type === "ollama" || desc?.id === "ollama") {
-      return createOllamaProvider({
-        apiKey: pc.apiKey || "ollama",
-        baseUrl: pc.baseUrl || desc?.baseUrl,
-        model,
-      })
-    } else {
-      return createOpenAIProvider({
-        apiKey: pc.apiKey || "",
-        baseUrl: pc.baseUrl || desc?.baseUrl,
-        model,
-        headers: pc.headers || desc?.headers,
-      })
+  private resolveDescriptor(pc: { type: string; baseUrl?: string; model?: string }): ProviderDescriptor {
+    const byType = pc.type ? getProvider(pc.type) : undefined
+    if (byType) return byType
+
+    if (pc.baseUrl) {
+      const byBase = Object.values(PROVIDERS).find((p) => p.baseUrl === pc.baseUrl)
+      if (byBase) return byBase
+    }
+
+    if (pc.type === "openai-compatible") return getProvider("custom")!
+
+    const model = pc.model || "gpt-4o"
+    const transport = pc.type === "anthropic" ? "anthropic-native" as const
+      : pc.type === "gemini" ? "gemini-native" as const
+      : pc.type === "ollama" ? "openai-compatible" as const
+      : "openai-compatible" as const
+
+    return {
+      id: pc.type || "custom",
+      name: pc.type || "Custom",
+      vendor: pc.type || "Custom",
+      transport,
+      authType: pc.type === "ollama" ? "none" : "api-key",
+      envVars: [],
+      baseUrl: pc.baseUrl,
+      defaultModel: model,
+      models: [model],
     }
   }
 
@@ -232,12 +265,20 @@ export class SwarmEngine {
           signal,
         }
 
-        const result = await this.engine.tools.execute(tc.name, tc.arguments, ctx)
+        const allowed = await this.engine.permissions.check(tc.name, tc.arguments, sessionId)
+        let result: ToolResult
+        if (!allowed) {
+          this.engine.onEvent({ type: "permission_denied", toolName: tc.name })
+          result = { content: [{ type: "text", text: `Permission denied for tool "${tc.name}"` }], isError: true }
+        } else {
+          result = await this.engine.tools.execute(tc.name, tc.arguments, ctx)
+        }
 
         const toolMsg: ToolResultMessage = {
           role: "tool",
           toolCallId: tc.id,
           content: result.content,
+          isError: result.isError,
         }
         this.engine.sessions.addMessage(sessionId, toolMsg)
       }

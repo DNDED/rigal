@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
 
 export function issueCommand(args: string[], engine: ArgentEngine): string {
@@ -41,6 +40,7 @@ export function issueCommand(args: string[], engine: ArgentEngine): string {
         cwd: wd,
         encoding: "utf-8",
         timeout: 15000,
+        shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
       })
 
       lines.push("  Open issues:")
@@ -66,10 +66,13 @@ export function issueCommand(args: string[], engine: ArgentEngine): string {
   const body = `Issue created by ARGENT from the CLI.\n\nTitle: ${title}`
 
   try {
-    const result = execSync(`gh issue create --title "${title}" --body "${body}" 2>&1`, {
+    const escapedTitle = title.replace(/'/g, "'\\''")
+    const escapedBody = body.replace(/'/g, "'\\''")
+    const result = execSync(`gh issue create --title '${escapedTitle}' --body '${escapedBody}' 2>&1`, {
       cwd: wd,
       encoding: "utf-8",
       timeout: 30000,
+      shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
     })
 
     lines.push(`  ● Issue created:`)

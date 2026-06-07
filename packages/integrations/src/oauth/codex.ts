@@ -17,64 +17,73 @@ function openBrowser(url: string): void {
   const platform = process.platform
   const cmd =
     platform === "darwin" ? `open "${url}"` :
-    platform === "win32" ? `start "${url}"` :
+    platform === "win32" ? `start "" "${url}"` :
     `xdg-open "${url}"`
   exec(cmd, () => {})
 }
 
-function startCallbackServer(): Promise<{ code: string; port: number; close: () => void }> {
-  return new Promise((resolve, reject) => {
-    let server: ReturnType<typeof Bun.serve> | null = null
-    let resolved = false
+function startCallbackServer() {
+  let codeResolver!: (val: { code: string; close: () => void }) => void
+  let codeRejecter!: (err: Error) => void
+  let resolved = false
+  let server: ReturnType<typeof Bun.serve> | null = null
 
-    server = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      fetch(req) {
-        const url = new URL(req.url)
-        const code = url.searchParams.get("code")
-        const error = url.searchParams.get("error")
+  const codePromise = new Promise<{ code: string; close: () => void }>((resolve, reject) => {
+    codeResolver = resolve
+    codeRejecter = reject
+  })
 
-        if (error) {
+  return {
+    serverPromise: new Promise<{ port: number }>((resolve) => {
+      server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch(req) {
+          const url = new URL(req.url)
+          const code = url.searchParams.get("code")
+          const error = url.searchParams.get("error")
+
+          if (error) {
+            if (!resolved) {
+              resolved = true
+              codeRejecter(new Error(`OAuth error: ${error} - ${url.searchParams.get("error_description") ?? ""}`))
+            }
+            return new Response("<html><body><h1>Authentication failed. You can close this window.</h1></body></html>", {
+              headers: { "Content-Type": "text/html" },
+            })
+          }
+
+          if (!code) {
+            return new Response("<html><body><h1>Missing authorization code.</h1></body></html>", {
+              headers: { "Content-Type": "text/html" },
+            })
+          }
+
           if (!resolved) {
             resolved = true
-            reject(new Error(`OAuth error: ${error} - ${url.searchParams.get("error_description") ?? ""}`))
+            codeResolver({
+              code,
+              close: () => server!.stop(true),
+            })
           }
-          return new Response("<html><body><h1>Authentication failed. You can close this window.</h1></body></html>", {
+
+          return new Response("<html><body><h1>Authentication successful! You can close this window.</h1></body></html>", {
             headers: { "Content-Type": "text/html" },
           })
-        }
+        },
+      })
+      resolve({ port: server!.port! })
 
-        if (!code) {
-          return new Response("<html><body><h1>Missing authorization code.</h1></body></html>", {
-            headers: { "Content-Type": "text/html" },
-          })
-        }
-
+      setTimeout(() => {
         if (!resolved) {
           resolved = true
-          const port = server!.port!
-          resolve({
-            code,
-            port,
-            close: () => server!.stop(true),
-          })
+          server?.stop(true)
+          codeRejecter(new Error("OAuth callback timed out after 120 seconds"))
         }
-
-        return new Response("<html><body><h1>Authentication successful! You can close this window.</h1></body></html>", {
-          headers: { "Content-Type": "text/html" },
-        })
-      },
-    })
-
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        server?.stop(true)
-        reject(new Error("OAuth callback timed out after 120 seconds"))
-      }
-    }, 120_000)
-  })
+      }, 120_000)
+    }),
+    codePromise,
+  }
 }
 
 async function exchangeCodeForToken(
@@ -116,22 +125,10 @@ async function exchangeCodeForToken(
 export async function startCodexOAuth(authStore: AuthStore): Promise<OAuthToken> {
   const { verifier, challenge } = generatePKCE()
 
-  const serverPromise = startCallbackServer()
+  const { serverPromise, codePromise } = startCallbackServer()
+  const { port: callbackPort } = await serverPromise
 
-  const serverInfo = await new Promise<{ port: number }>((resolve) => {
-    const tmpServer = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      fetch() {
-        return new Response("ok")
-      },
-    })
-    const port = tmpServer.port!
-    tmpServer.stop(true)
-    resolve({ port })
-  })
-
-  const redirectUri = `http://127.0.0.1:${serverInfo.port}/callback`
+  const redirectUri = `http://127.0.0.1:${callbackPort}/callback`
 
   const authParams = new URLSearchParams({
     response_type: "code",
@@ -148,11 +145,11 @@ export async function startCodexOAuth(authStore: AuthStore): Promise<OAuthToken>
   console.log(`If the browser doesn't open, visit:\n${authUrl}\n`)
   openBrowser(authUrl)
 
-  const { code, port, close } = await serverPromise
+  const { code, close } = await codePromise
   close()
 
-  const token = await exchangeCodeForToken(code, port, verifier)
-  authStore.setToken("codex", token)
+  const token = await exchangeCodeForToken(code, callbackPort, verifier)
+  await authStore.setToken("codex", token)
 
   console.log("Codex authentication successful!")
   return token

@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
 export function compactCommand(engine: ArgentEngine): string {
   const lines: string[] = []
@@ -28,8 +27,9 @@ export function compactCommand(engine: ArgentEngine): string {
     return lines.join("\n")
   }
 
-  const userMsgs = session.messages.filter((m) => m.role === "user")
-  const assistantMsgs = session.messages.filter((m) => m.role === "assistant")
+  const originalMessages = session.messages
+  const userMsgs = originalMessages.filter((m) => m.role === "user")
+  const assistantMsgs = originalMessages.filter((m) => m.role === "assistant")
 
   const summary = [
     `Session compacted: ${userMsgs.length} user turns, ${assistantMsgs.length} assistant responses.`,
@@ -37,11 +37,12 @@ export function compactCommand(engine: ArgentEngine): string {
     `Agent: ${session.agentName}`,
   ].join("\n")
 
-  const compacted = session.messages.slice(-4)
+  const compacted = originalMessages.slice(-4)
   session.messages = compacted
   session.metadata.compacted = "true"
   session.metadata.summary = summary
-  session.updatedAt = new Date()
+  session.metadata.compactedMessages = JSON.stringify(originalMessages)
+  engine.sessions.markDirty(engine.sessionId)
 
   lines.push("  ● Session compacted successfully.")
   lines.push("")

@@ -1,6 +1,6 @@
 {
   "name": "argent",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "description": "ARGENT — The universal AI coding harness. Any model, any provider, any platform.",
   "workspaces": [
@@ -8,13 +8,14 @@
   ],
   "scripts": {
     "dev": "bun run --cwd packages/argent dev",
-    "build": "bun run packages/core/build.ts && bun run packages/llm/build.ts && bun run packages/integrations/build.ts && bun run packages/argent/build.ts",
-    "typecheck": "bun --eval \"import './packages/core/tsconfig.json'; import './packages/llm/tsconfig.json'; import './packages/argent/tsconfig.json'\" 2>/dev/null; bun x tsc --noEmit -p packages/core/tsconfig.json && bun x tsc --noEmit -p packages/llm/tsconfig.json && bun x tsc --noEmit -p packages/argent/tsconfig.json",
+    "build": "bun run --cwd packages/argent build",
+    "build:binary": "bun run --cwd packages/argent build:binary",
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "lint": "bun x oxlint",
     "format": "bun x prettier --write .",
-    "integrations:generate": "bun run packages/integrations/script/generate.ts",
+
     "clean": "rm -rf packages/*/dist"
   },
   "devDependencies": {
@@ -24,6 +25,6 @@
     "typescript": "^5.9.0"
   },
   "engines": {
-    "bun": ">=1.3.0"
+    "node": ">=20.0.0"
   }
 }

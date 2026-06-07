@@ -9,9 +9,25 @@ interface ChatViewProps {
   isStreaming: boolean
   errors: string[]
   streamingToolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[]
+  terminalHeight?: number
 }
 
-export function ChatView({ messages, streamingText, isStreaming, errors, streamingToolCalls }: ChatViewProps) {
+const TS_LANGS = new Set(["ts", "typescript", "js", "javascript", "tsx", "jsx"])
+
+const STREAMING_FRAMES = ["◌", "◍", "●"]
+
+function getMaxVisible(terminalHeight: number): number {
+  return Math.max(10, Math.floor((terminalHeight - 10) / 3))
+}
+
+export function ChatView({ messages, streamingText, isStreaming, errors, streamingToolCalls, terminalHeight = 80 }: ChatViewProps) {
+  const MAX_VISIBLE = getMaxVisible(terminalHeight)
+  const visibleMessages = messages.length > MAX_VISIBLE
+    ? messages.slice(-MAX_VISIBLE)
+    : messages
+  const hiddenCount = messages.length - MAX_VISIBLE
+  let userMsgNum = 0
+
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1}>
       {errors.length > 0 && (
@@ -26,9 +42,33 @@ export function ChatView({ messages, streamingText, isStreaming, errors, streami
         </Box>
       )}
 
-      {messages.map((msg, i) => (
-        <MessageBubble key={i} message={msg} />
-      ))}
+      {hiddenCount > 0 && (
+        <Box paddingY={0}>
+          <Text color={theme.colors.textMuted}>
+            {theme.chars.dotted} {hiddenCount} earlier messages hidden {theme.chars.dotted}
+          </Text>
+        </Box>
+      )}
+
+      {visibleMessages.map((msg, i) => {
+        if (msg.role === "user") userMsgNum++
+        const prevRole = i > 0 ? visibleMessages[i - 1]?.role : undefined
+        const roleChanged = prevRole !== undefined && msg.role !== prevRole
+        const isFirstInTurn = i === 0 || roleChanged
+        const showSeparatorAtBoundary = (i === 0 && hiddenCount > 0)
+
+        return (
+          <React.Fragment key={i}>
+            {(roleChanged || showSeparatorAtBoundary) && (
+              <Box>
+                <Text color={theme.colors.borderSubtle}>{theme.chars.thin}{theme.chars.thin}{theme.chars.thin}</Text>
+              </Box>
+            )}
+            <MessageBubble message={msg} showRole={isFirstInTurn} extraPadding={roleChanged} userMsgNum={msg.role === "user" ? userMsgNum : undefined} />
+          </React.Fragment>
+        )
+      })}
+
       {isStreaming && (
         <StreamingBubble text={streamingText} toolCalls={streamingToolCalls} />
       )}
@@ -37,22 +77,24 @@ export function ChatView({ messages, streamingText, isStreaming, errors, streami
 }
 
 function StreamingBubble({ text, toolCalls }: { text: string; toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[] }) {
-  const [cursorVisible, setCursorVisible] = useState(true)
+  const [frameIndex, setFrameIndex] = useState(0)
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setCursorVisible((v) => !v)
+      setFrameIndex((v) => (v + 1) % STREAMING_FRAMES.length)
     }, 530)
     return () => clearInterval(interval)
   }, [])
 
   if (!text && (!toolCalls || toolCalls.length === 0)) {
-    return <ThinkingIndicator />
+    return <ThinkingIndicator frameIndex={frameIndex} />
   }
+
+  const frame = STREAMING_FRAMES[frameIndex] ?? "●"
 
   return (
     <Box flexDirection="column" paddingY={1}>
-      <Box marginBottom={0}>
+      <Box>
         <Text color={theme.colors.accentBright}>
           {theme.chars.diamond}{" "}
           <Text bold color={theme.colors.textWhite}>argent</Text>
@@ -60,17 +102,12 @@ function StreamingBubble({ text, toolCalls }: { text: string; toolCalls?: { id: 
       </Box>
       {text ? (
         <Box paddingLeft={2}>
-          <Box flexDirection="column">
-            <Text color={theme.colors.textMuted}>{theme.chars.verticalLight} </Text>
-            <Box flexDirection="row">
-              <Box flexShrink={1}>
-                <MarkdownContent content={text} color={theme.colors.text} />
-              </Box>
-              <Box flexShrink={0}>
-                <Text color={cursorVisible ? theme.colors.accent : theme.colors.bg}>
-                  {theme.chars.cursor}
-                </Text>
-              </Box>
+          <Box flexDirection="row">
+            <Box flexShrink={1}>
+              <MarkdownContent content={text} color={theme.colors.text} />
+            </Box>
+            <Box flexShrink={0}>
+              <Text color={theme.colors.accent}>{frame}</Text>
             </Box>
           </Box>
         </Box>
@@ -86,47 +123,37 @@ function StreamingBubble({ text, toolCalls }: { text: string; toolCalls?: { id: 
   )
 }
 
-function ThinkingIndicator() {
-  const [dotIndex, setDotIndex] = useState(0)
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDotIndex((prev) => (prev + 1) % 4)
-    }, 400)
-    return () => clearInterval(interval)
-  }, [])
-
-  const dots = [".", "..", "...", ".."]
+function ThinkingIndicator({ frameIndex }: { frameIndex: number }) {
+  const frame = STREAMING_FRAMES[frameIndex] ?? "●"
 
   return (
-    <Box flexDirection="column" paddingY={1}>
-      <Box marginBottom={0}>
-        <Text color={theme.colors.accentBright}>
-          {theme.chars.diamond}{" "}
-          <Text bold color={theme.colors.textWhite}>argent</Text>
-        </Text>
-      </Box>
-      <Box paddingLeft={2}>
-        <Text color={theme.colors.textMuted}>
-          {theme.chars.verticalLight}{" "}
-          <Text color={theme.colors.accent}>thinking</Text>
-          <Text color={theme.colors.textDim}>{dots[dotIndex]}</Text>
-        </Text>
-      </Box>
+    <Box paddingY={1}>
+      <Text color={theme.colors.accentBright}>
+        {theme.chars.diamond}{" "}
+        <Text bold color={theme.colors.textWhite}>argent</Text>
+      </Text>
+      <Text color={theme.colors.accent}> {frame}··</Text>
     </Box>
   )
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, showRole, extraPadding, userMsgNum }: { message: Message; showRole: boolean; extraPadding: boolean; userMsgNum?: number }) {
+  const pad = extraPadding ? 1 : 0
+
   if (message.role === "user") {
     const textContent = message.content.map((c) => ("text" in c ? c.text : "")).join(" ")
 
     return (
-      <Box flexDirection="column" paddingY={1}>
-        <Box marginBottom={0}>
-          <Text color={theme.colors.textBright}>
+      <Box flexDirection="column" paddingTop={pad} paddingBottom={0}>
+        <Box>
+          {userMsgNum !== undefined ? (
+            <Text color={theme.colors.textDim}>
+              [{userMsgNum}]{" "}
+            </Text>
+          ) : null}
+          <Text bold color={theme.colors.textBright}>
             {theme.chars.arrow}{" "}
-            <Text bold>you</Text>
+            you
           </Text>
         </Box>
         <Box paddingLeft={2}>
@@ -141,19 +168,21 @@ function MessageBubble({ message }: { message: Message }) {
     const toolCalls = ("toolCalls" in message ? message.toolCalls : []) || []
 
     return (
-      <Box flexDirection="column" paddingY={1}>
-        <Box marginBottom={0}>
-          <Text color={theme.colors.accentBright}>
-            {theme.chars.diamond}{" "}
-            <Text bold color={theme.colors.textWhite}>argent</Text>
-          </Text>
-        </Box>
+      <Box flexDirection="column" paddingTop={pad} paddingBottom={0}>
+        {showRole && (
+          <Box>
+            <Text color={theme.colors.accentBright}>
+              {theme.chars.diamond}{" "}
+              <Text bold color={theme.colors.textWhite}>argent</Text>
+            </Text>
+          </Box>
+        )}
 
-        {textContent && (
+        {textContent ? (
           <Box paddingLeft={2} flexDirection="column">
             <MarkdownContent content={textContent} color={theme.colors.text} />
           </Box>
-        )}
+        ) : null}
 
         {toolCalls.length > 0 && (
           <Box paddingLeft={2} flexDirection="column" marginTop={textContent ? 1 : 0}>
@@ -169,13 +198,14 @@ function MessageBubble({ message }: { message: Message }) {
   if (message.role === "tool") {
     const fullText = message.content.map((c) => ("text" in c ? c.text : "")).join(" ")
     const isError = (message as any).isError === true
+    const displayText = fullText.length > 300 ? fullText.slice(0, 289) + "[truncated]" : fullText
 
     return (
       <Box flexDirection="column" paddingLeft={4} paddingY={0}>
-        <Text color={isError ? theme.colors.error : theme.colors.textMuted}>
-          {theme.chars.branchLast}{theme.chars.connector}{" "}
+        <Text color={theme.colors.textMuted}>
+          {theme.icons.verticalBar}{" "}
           <Text dimColor={!isError} color={isError ? theme.colors.error : undefined}>
-            <ExpandableToolResult text={fullText} />
+            {displayText}
           </Text>
         </Text>
       </Box>
@@ -186,39 +216,20 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 function ToolCallDisplay({ toolCall, streaming }: { toolCall: { id: string; name: string; arguments: Record<string, unknown> }; streaming?: boolean }) {
-  const args = Object.entries(toolCall.arguments)
-    .map(([k, v]) => {
-      const val = typeof v === "string" && v.length > 40 ? `"${v.slice(0, 37)}..."` : JSON.stringify(v)
-      return `${k}=${val}`
-    })
+  const fullArgs = Object.entries(toolCall.arguments)
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
     .join(", ")
+  const args = fullArgs.length > 60 ? fullArgs.slice(0, 57) + "..." : fullArgs
 
   return (
     <Box>
       <Text>
-        <Text color={theme.colors.warning}>{theme.chars.branch}</Text>
-        <Text color={theme.colors.warning}>{theme.chars.connector}</Text>
-        <Text color={theme.colors.code}> {toolCall.name}</Text>
-        <Text color={theme.colors.textMuted}>({args})</Text>
-        {streaming && (
-          <Text color={theme.colors.accent}> {theme.chars.block}</Text>
-        )}
-      </Text>
-    </Box>
-  )
-}
-
-function ExpandableToolResult({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const MAX = 200
-  if (text.length <= MAX) return <>{text}</>
-  return (
-    <Box flexDirection="column">
-      <Text>
-        {expanded ? text : text.slice(0, MAX) + theme.chars.ellipsis}{" "}
-        <Text color={theme.colors.accent}>
-          [{expanded ? "show less" : `show full (${text.length} chars)`}]
-        </Text>
+        <Text color={theme.colors.warning}>{theme.icons.tool}</Text>
+        <Text color={theme.colors.warning}> {toolCall.name}</Text>
+        <Text color={theme.colors.warning}>({args})</Text>
+        {streaming ? (
+          <Text color={theme.colors.warning}>...</Text>
+        ) : null}
       </Text>
     </Box>
   )
@@ -229,7 +240,6 @@ type MarkdownToken =
   | { type: "bold"; content: string }
   | { type: "italic"; content: string }
   | { type: "code"; content: string }
-  | { type: "linebreak" }
 
 type MarkdownBlock =
   | { type: "paragraph"; tokens: MarkdownToken[] }
@@ -275,6 +285,7 @@ function parseInlineMarkdown(text: string): MarkdownToken[] {
       while (j < text.length && text[j] !== "*" && text[j] !== "`") {
         j++
       }
+      if (j === i) { i++; continue }
       tokens.push({ type: "text", content: text.slice(i, j) })
       i = j
     }
@@ -304,19 +315,6 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       continue
     }
 
-    const isDiffLine = /^[+\-]\s*/.test(line)
-    if (isDiffLine) {
-      const hunkLines: { prefix: string; content: string }[] = []
-      while (i < lines.length && /^[+\-@ ]/.test(lines[i] ?? "")) {
-        const hl = lines[i] ?? ""
-        const prefix = hl[0] ?? " "
-        hunkLines.push({ prefix, content: hl.slice(1) })
-        i++
-      }
-      blocks.push({ type: "diff_hunk", lines: hunkLines })
-      continue
-    }
-
     if (/^#{1,6}\s/.test(line)) {
       const match = line.match(/^(#{1,6})\s+(.*)/)
       if (match) {
@@ -340,6 +338,19 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         blocks.push({ type: "list_item", tokens: inline, ordered: true, index: parseInt(match[1]!, 10) })
       }
       i++
+      continue
+    }
+
+    const isDiffLine = /^[+\-]\s*/.test(line)
+    if (isDiffLine) {
+      const hunkLines: { prefix: string; content: string }[] = []
+      while (i < lines.length && /^[+\-@ ]/.test(lines[i] ?? "")) {
+        const hl = lines[i] ?? ""
+        const prefix = hl[0] ?? " "
+        hunkLines.push({ prefix, content: hl.slice(1) })
+        i++
+      }
+      blocks.push({ type: "diff_hunk", lines: hunkLines })
       continue
     }
 
@@ -388,23 +399,42 @@ function MarkdownBlockRenderer({ block, baseColor }: { block: MarkdownBlock; bas
   }
 
   if (block.type === "codeblock") {
+    const lines = block.content.split("\n")
+    const isDiff = block.language === "diff"
+    const shouldHighlight = TS_LANGS.has(block.language)
+
     return (
-      <Box flexDirection="column" marginY={1}>
-        <Box
-          borderStyle="single"
-          borderColor={theme.colors.borderFocus}
-          paddingX={1}
-          paddingY={0}
-          flexDirection="column"
-        >
-          {block.language && (
-            <Box>
-              <Text color={theme.colors.textMuted}>
-                {theme.chars.dot} <Text color={theme.colors.accentDim}>{block.language}</Text>
-              </Text>
+      <Box flexDirection="column" marginTop={0} marginBottom={0}>
+        <Box>
+          <Text color={theme.colors.borderSubtle}>{theme.chars.thin}{theme.chars.thin}{theme.chars.thin}</Text>
+        </Box>
+        {block.language ? (
+          <Box>
+            <Text color={theme.colors.accentDim}>[{block.language}]</Text>
+          </Box>
+        ) : null}
+        <Box flexDirection="column">
+          {lines.map((line, li) => (
+            <Box key={li} flexDirection="row">
+              <Box flexShrink={0}>
+                <Text color={theme.colors.accentDim}>{theme.chars.vertical} </Text>
+              </Box>
+              <Box flexShrink={1}>
+                {isDiff ? (
+                  <DiffCodeLine line={line} />
+                ) : shouldHighlight ? (
+                  <HighlightedLine line={line} />
+                ) : line.trimStart().startsWith("//") || line.trimStart().startsWith("#") ? (
+                  <Text dimColor color={theme.colors.comment}>{line}</Text>
+                ) : (
+                  <Text color={theme.colors.code}>{line}</Text>
+                )}
+              </Box>
             </Box>
-          )}
-          <SyntaxHighlightedCode code={block.content} language={block.language} />
+          ))}
+        </Box>
+        <Box>
+          <Text color={theme.colors.borderSubtle}>{theme.chars.thin}{theme.chars.thin}{theme.chars.thin}</Text>
         </Box>
       </Box>
     )
@@ -473,36 +503,36 @@ function MarkdownTokenRenderer({ token }: { token: MarkdownToken }) {
   return null
 }
 
-function tokenizeCode(code: string, language: string): { text: string; color?: string; dim?: boolean }[] {
+function highlightTS(code: string): { text: string; color?: string; dim?: boolean }[] {
   const tokens: { text: string; color?: string; dim?: boolean }[] = []
 
-  const keywords = [
-    "const", "let", "var", "function", "return", "if", "else", "for", "while",
-    "import", "export", "from", "default", "class", "extends", "new", "this",
-    "try", "catch", "throw", "async", "await", "typeof", "instanceof",
-    "interface", "type", "enum", "implements", "abstract", "public", "private",
-    "protected", "static", "readonly", "yield", "switch", "case", "break",
-    "continue", "do", "in", "of", "get", "set", "as", "is",
-  ]
+  const kwSet = new Set([
+    "const", "let", "var", "function", "class", "export", "import", "return",
+    "if", "else", "async", "await", "for", "while", "try", "catch", "throw",
+    "new", "extends", "implements", "interface", "type", "enum",
+    "default", "from", "of", "in", "as", "is", "yield", "switch", "case",
+    "break", "continue", "do", "typeof", "instanceof", "get", "set",
+    "static", "readonly", "abstract", "public", "private", "protected",
+    "null", "undefined", "true", "false", "this", "super",
+  ])
 
-  const combinedPattern = new RegExp(
-    `(${keywords.join("|")})\\b|` +
+  const keywordPattern = Array.from(kwSet).sort((a, b) => b.length - a.length).join("|")
+
+  const pattern = new RegExp(
+    `(\\b(?:${keywordPattern})\\b)|` +
     `("(?:[^"\\\\]|\\\\.)*")|` +
     `('(?:[^'\\\\]|\\\\.)*')|` +
     `(\`(?:[^\`\\\\]|\\\\.)*\`)|` +
     `(//[^\n]*)|` +
     `(/\\*[\\s\\S]*?\\*/)|` +
-    `(\\b\\d+\\.?\\d*\\b)|` +
-    `(</?[a-zA-Z][a-zA-Z0-9._-]*(?:\\s[^>]*)?/?>)|` +
-    `([A-Z][a-zA-Z0-9_]*\\b)|` +
-    `([a-zA-Z_$][a-zA-Z0-9_$]*)`,
+    `(\\b\\d+\\.?\\d*\\b)`,
     "g"
   )
 
   let match: RegExpExecArray | null
   let lastIndex = 0
 
-  while ((match = combinedPattern.exec(code)) !== null) {
+  while ((match = pattern.exec(code)) !== null) {
     if (match.index > lastIndex) {
       tokens.push({ text: code.slice(lastIndex, match.index) })
     }
@@ -511,11 +541,9 @@ function tokenizeCode(code: string, language: string): { text: string; color?: s
     else if (match[2] || match[3] || match[4]) tokens.push({ text: match[0], color: theme.colors.string })
     else if (match[5] || match[6]) tokens.push({ text: match[0], color: theme.colors.comment, dim: true })
     else if (match[7]) tokens.push({ text: match[0], color: theme.colors.number })
-    else if (match[8]) tokens.push({ text: match[0], color: theme.colors.tag })
-    else if (match[9]) tokens.push({ text: match[0], color: theme.colors.type })
     else tokens.push({ text: match[0] })
 
-    lastIndex = combinedPattern.lastIndex
+    lastIndex = pattern.lastIndex
   }
 
   if (lastIndex < code.length) {
@@ -525,18 +553,32 @@ function tokenizeCode(code: string, language: string): { text: string; color?: s
   return tokens
 }
 
-function SyntaxHighlightedCode({ code, language }: { code: string; language: string }) {
-  const highlighted = tokenizeCode(code, language)
+function HighlightedLine({ line }: { line: string }) {
+  const tokens = highlightTS(line)
+  return (
+    <Text>
+      {tokens.map((tok, i) => (
+        <Text key={i} color={tok.color} dimColor={tok.dim}>{tok.text}</Text>
+      ))}
+    </Text>
+  )
+}
+
+function DiffCodeLine({ line }: { line: string }) {
+  const prefix = line[0] ?? ""
+  const isAdd = prefix === "+"
+  const isDel = prefix === "-"
+  const isContext = prefix === "@" && line.startsWith("@@")
+
+  const lineColor = isAdd
+    ? theme.colors.diffAdd
+    : isDel
+      ? theme.colors.diffDel
+      : isContext
+        ? theme.colors.textDim
+        : theme.colors.code
 
   return (
-    <Box flexDirection="column">
-      <Text>
-        {highlighted.map((tok, i) => (
-          <Text key={i} color={tok.color} dimColor={tok.dim}>
-            {tok.text}
-          </Text>
-        ))}
-      </Text>
-    </Box>
+    <Text color={lineColor}>{line}</Text>
   )
 }

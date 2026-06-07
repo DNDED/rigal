@@ -44,12 +44,6 @@ export function PromptInput({
           if (idx >= 0 && idx < history.length) {
             setValue(history[idx] ?? "")
           }
-        } else {
-          setHistoryIndex(0)
-          const last = history[history.length - 1]
-          if (last !== undefined) {
-            setValue(last)
-          }
         }
         return
       }

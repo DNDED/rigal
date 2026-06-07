@@ -1,5 +1,9 @@
 #!/usr/bin/env bun
 import { ArgentEngine } from "../src/cli/engine.js"
+import { dirname, resolve } from "path"
+import { fileURLToPath } from "url"
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
 async function smokeTest() {
   console.log("⬡ ARGENT Smoke Test")
@@ -43,11 +47,11 @@ async function smokeTest() {
   // Test grep
   const grepResult = await engine.tools.execute("grep", {
     pattern: "export",
-    path: "/home/trader/argent/packages/argent/src",
+    path: resolve(repoRoot, "packages/argent/src"),
     include: "*.ts",
   }, {
     sessionId: "test",
-    workingDirectory: "/home/trader/argent",
+    workingDirectory: repoRoot,
     agentName: "build",
   })
 
@@ -58,10 +62,10 @@ async function smokeTest() {
   // Test glob
   const globResult = await engine.tools.execute("glob", {
     pattern: "**/*.ts",
-    path: "/home/trader/argent/packages/argent/src",
+    path: resolve(repoRoot, "packages/argent/src"),
   }, {
     sessionId: "test",
-    workingDirectory: "/home/trader/argent",
+    workingDirectory: repoRoot,
     agentName: "build",
   })
 

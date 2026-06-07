@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 import { execSync } from "child_process"
 
 export function securityCommand(engine: ArgentEngine): string {
@@ -106,6 +105,7 @@ function scanDependencies(wd: string): string[] {
       cwd: wd,
       encoding: "utf-8",
       timeout: 30000,
+      shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
     })
 
     try {
@@ -145,6 +145,7 @@ function scanFilePermissions(wd: string): string[] {
       cwd: wd,
       encoding: "utf-8",
       timeout: 5000,
+      shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
     })
 
     const scripts = result.trim().split("\n").filter(Boolean)
@@ -166,6 +167,7 @@ function scanGitExposure(wd: string): string[] {
       cwd: wd,
       encoding: "utf-8",
       timeout: 5000,
+      shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
     })
 
     const tracked = result.trim().split("\n").filter(Boolean)

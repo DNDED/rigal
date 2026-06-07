@@ -1,7 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
-import { existsSync, writeFileSync } from "fs"
-import { join } from "path"
 
 export function specCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []

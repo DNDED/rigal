@@ -25,25 +25,6 @@ if (compile) {
 
     console.log(`  Compiling for ${platform}/${arch}...`)
 
-    const result = await Bun.build({
-      entrypoints: ["src/cli/main.tsx"],
-      outdir: "dist",
-      target: "bun",
-      format: "esm",
-      minify: true,
-      sourcemap: "none",
-      splitting: false,
-      external: ["react", "ink", "ink-text-input", "ink-spinner", "effect"],
-    })
-
-    if (!result.success) {
-      for (const log of result.logs) {
-        console.error(log)
-      }
-      process.exit(1)
-    }
-
-    // Use bun build --compile via shell command
     const proc = Bun.spawn([
       "bun",
       "build",
@@ -53,7 +34,10 @@ if (compile) {
       "src/cli/main.tsx",
       "--outfile",
       outfile,
-    ])
+    ], {
+      stdout: "inherit",
+      stderr: "inherit",
+    })
 
     await proc.exited
 
@@ -72,12 +56,12 @@ if (compile) {
   const result = await Bun.build({
     entrypoints: ["src/cli/main.tsx"],
     outdir: "dist",
-    target: "bun",
+    target: "node",
     format: "esm",
     minify: false,
     sourcemap: "inline",
     splitting: false,
-    external: ["react", "ink", "ink-text-input", "ink-spinner", "chalk", "effect"],
+    external: ["react", "ink", "ink-text-input", "ink-spinner", "react-devtools-core", "react-reconciler", "effect"],
   })
 
   if (!result.success) {

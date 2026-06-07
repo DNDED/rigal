@@ -1,5 +1,4 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
 
 export function shortcutsCommand(engine: ArgentEngine): string {
   const lines: string[] = []

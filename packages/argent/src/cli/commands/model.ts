@@ -36,7 +36,7 @@ function renderModelList(provider: ProviderDescriptor, currentModel: string | nu
   const lines: string[] = []
 
   lines.push(`Provider: ${provider.name}`)
-  lines.push(`Current model: ${currentModel || provider.defaultModel}`)
+  lines.push(`Current model: ${currentModel || provider.defaultModel || "unknown"}`)
   lines.push("")
   lines.push(`┌─────────────────────────────────────────┐`)
   lines.push(`│  Available Models                       │`)

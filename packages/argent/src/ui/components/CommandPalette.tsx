@@ -7,32 +7,31 @@ interface Command {
   label: string
   description: string
   category: string
-  action: () => void
+  command: string
 }
 
 interface CommandPaletteProps {
   isOpen: boolean
   onClose: () => void
-  onExecute: (action: () => void) => void
+  onExecute: (command: string) => void
 }
 
 const ALL_COMMANDS: Command[] = [
-  { id: "agent-build", label: "/agent build", description: "Full-access development agent", category: "Agent", action: () => {} },
-  { id: "agent-plan", label: "/agent plan", description: "Read-only analysis & exploration", category: "Agent", action: () => {} },
-  { id: "agent-explore", label: "/agent explore", description: "Fast codebase search (subagent)", category: "Agent", action: () => {} },
-  { id: "model", label: "/model", description: "Switch AI model", category: "Model", action: () => {} },
-  { id: "provider", label: "/provider", description: "Change LLM provider", category: "Model", action: () => {} },
-  { id: "oauth", label: "/oauth", description: "Manage OAuth tokens", category: "Model", action: () => {} },
-  { id: "clear", label: "/clear", description: "Start a new session", category: "Session", action: () => {} },
-  { id: "undo", label: "/undo", description: "Revert last change", category: "Session", action: () => {} },
-  { id: "status", label: "/status", description: "Show current status", category: "Session", action: () => {} },
-  { id: "share", label: "/share", description: "Share current session", category: "Session", action: () => {} },
-  { id: "setup", label: "/setup", description: "Re-run first-run setup", category: "System", action: () => {} },
-  { id: "help", label: "/help", description: "Show all available commands", category: "System", action: () => {} },
-  { id: "exit", label: "/exit", description: "Quit ARGENT", category: "System", action: () => {} },
+  { id: "agent-build", label: "/agent build", description: "Full-access development agent", category: "Agent", command: "/agent build" },
+  { id: "agent-plan", label: "/agent plan", description: "Read-only analysis & exploration", category: "Agent", command: "/agent plan" },
+  { id: "agent-explore", label: "/agent explore", description: "Fast codebase search (subagent)", category: "Agent", command: "/agent explore" },
+  { id: "provider", label: "/provider", description: "Change LLM provider", category: "Model", command: "/provider" },
+  { id: "model", label: "/model", description: "Switch AI model", category: "Model", command: "/model" },
+  { id: "oauth-status", label: "/oauth status", description: "Show OAuth token status", category: "Model", command: "/oauth status" },
+  { id: "clear", label: "/clear", description: "Start a new session", category: "Session", command: "/clear" },
+  { id: "undo", label: "/undo", description: "Revert last change", category: "Session", command: "/undo" },
+  { id: "status", label: "/status", description: "Show current status", category: "Session", command: "/status" },
+  { id: "history", label: "/history", description: "Show recent command history", category: "Session", command: "/history" },
+  { id: "setup", label: "/setup", description: "Re-run first-run setup", category: "System", command: "/setup" },
+  { id: "help", label: "/help", description: "Show all available commands", category: "System", command: "/help" },
+  { id: "shortcuts", label: "/shortcuts", description: "Show keyboard shortcuts", category: "System", command: "/shortcuts" },
+  { id: "exit", label: "/exit", description: "Quit ARGENT", category: "System", command: "/exit" },
 ]
-
-const CATEGORIES = ["Agent", "Model", "Session", "System"]
 
 export function CommandPalette({ isOpen, onClose, onExecute }: CommandPaletteProps) {
   const [query, setQuery] = useState("")
@@ -53,7 +52,7 @@ export function CommandPalette({ isOpen, onClose, onExecute }: CommandPalettePro
   const handleSelect = useCallback(() => {
     const cmd = filtered[safeSelected]
     if (cmd) {
-      onExecute(cmd.action)
+      onExecute(cmd.command)
       onClose()
       setQuery("")
       setSelectedIndex(0)
@@ -77,7 +76,7 @@ export function CommandPalette({ isOpen, onClose, onExecute }: CommandPalettePro
       }
 
       if (key.upArrow) {
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : filtered.length - 1))
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : Math.max(0, filtered.length - 1)))
         return
       }
 

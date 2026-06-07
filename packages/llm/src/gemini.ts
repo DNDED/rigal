@@ -1,5 +1,6 @@
 import type { LLMProvider, ProviderOptions, ProviderResponse, ProviderStreamEvent } from "./provider.js"
-import type { Message, MessageContent, ToolCall } from "@rigal/core"
+import type { Message, MessageContent, ToolCall } from "@argent/core"
+import { createFetchSignal } from "./fetch-timeout.js"
 
 export function createGeminiProvider(options: ProviderOptions): LLMProvider {
   const apiKey = options.apiKey
@@ -7,12 +8,13 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
   const model = options.model || "gemini-2.5-pro"
 
   function toGeminiContents(messages: Message[]) {
-    return messages.map((m) => {
+    return messages.filter(m => m.role !== "system").map((m) => {
+      const content = m.content || []
       if (m.role === "user") {
-        return { role: "user", parts: m.content.map((c) => (c.type === "text" ? { text: c.text } : { inline_data: { mime_type: "image/png", data: c.imageUrl } })) }
+        return { role: "user", parts: content.map((c) => (c.type === "text" ? { text: c.text } : { inline_data: { mime_type: "image/png", data: (c as { imageUrl?: string }).imageUrl } })) }
       }
       if (m.role === "assistant") {
-        const parts: Record<string, unknown>[] = m.content.filter((c) => c.text).map((c) => ({ text: c.text }))
+        const parts: Record<string, unknown>[] = content.filter((c) => c.text).map((c) => ({ text: c.text }))
         if (m.toolCalls?.length) {
           for (const tc of m.toolCalls) {
             parts.push({
@@ -24,7 +26,7 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
       }
       return {
         role: "function",
-        parts: [{ functionResponse: { name: "tool_result", response: { content: m.content.map((c) => c.text || "").join("\n") } } }],
+        parts: [{ functionResponse: { name: "tool_result", response: { content: content.map((c) => c.text || "").join("\n") } } }],
       }
     })
   }
@@ -47,12 +49,19 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
     ],
 
     async chat(messages, tools, opts) {
+      const systemMsgs = messages.filter(m => m.role === "system")
+      const nonSystemMsgs = messages.filter(m => m.role !== "system")
       const body: Record<string, unknown> = {
-        contents: toGeminiContents(messages),
+        contents: toGeminiContents(nonSystemMsgs),
         generationConfig: {
           maxOutputTokens: opts?.maxTokens || 8192,
           temperature: opts?.temperature ?? 0.7,
         },
+      }
+      if (systemMsgs.length > 0) {
+        body.systemInstruction = {
+          parts: systemMsgs.flatMap(m => (m.content || []).map((c: any) => c.type === "text" ? { text: c.text } : { text: "" })).filter((p: any) => p.text)
+        }
       }
 
       const toolDeclarations = toolsToGeminiDeclarations(tools || [])
@@ -62,22 +71,37 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
         `${baseUrl}/models/${opts?.model || model}:generateContent?key=${apiKey}`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...(options.headers || {}) },
           body: JSON.stringify(body),
+          signal: createFetchSignal(),
         }
       )
 
       if (!res.ok) throw new Error(`Gemini API error: ${res.status} ${await res.text()}`)
 
-      const json = await res.json()
+      const json = await res.json() as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{ text?: string; functionCall?: { name: string; args: Record<string, unknown> } }>
+          }
+          finishReason?: string
+        }>
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+      }
       const candidate = json.candidates?.[0]
       const content = candidate?.content
 
       const parts = content?.parts || []
-      const textParts = parts.filter((p: { text?: string }) => p.text).map((p: { text: string }) => p.text).join("")
+      const textParts = parts
+        .filter((p): p is { text: string } => typeof p.text === "string")
+        .map((p) => p.text)
+        .join("")
       const toolCalls = parts
-        .filter((p: { functionCall?: { name: string; args: Record<string, unknown> } }) => p.functionCall)
-        .map((p: { functionCall: { name: string; args: Record<string, unknown> } }, i: number) => ({
+        .filter(
+          (p): p is { functionCall: { name: string; args: Record<string, unknown> } } =>
+            !!p.functionCall && typeof p.functionCall.name === "string"
+        )
+        .map((p, i: number) => ({
           id: `call_${i}`,
           name: p.functionCall.name,
           arguments: p.functionCall.args || {},
@@ -94,41 +118,67 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
       }
     },
 
-    async *stream(messages, tools, opts) {
+    async *stream(messages, tools, opts, signal?) {
+      const systemMsgs = messages.filter(m => m.role === "system")
+      const nonSystemMsgs = messages.filter(m => m.role !== "system")
       const body: Record<string, unknown> = {
-        contents: toGeminiContents(messages),
+        contents: toGeminiContents(nonSystemMsgs),
         generationConfig: {
           maxOutputTokens: opts?.maxTokens || 8192,
           temperature: opts?.temperature ?? 0.7,
         },
       }
+      if (systemMsgs.length > 0) {
+        body.systemInstruction = {
+          parts: systemMsgs.flatMap(m => (m.content || []).map((c: any) => c.type === "text" ? { text: c.text } : { text: "" })).filter((p: any) => p.text)
+        }
+      }
 
       const toolDeclarations = toolsToGeminiDeclarations(tools || [])
       if (toolDeclarations) body.tools = [{ functionDeclarations: toolDeclarations }]
 
-      const res = await fetch(
-        `${baseUrl}/models/${opts?.model || model}:streamGenerateContent?alt=sse&key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      )
+      let res: Response
+      try {
+        res = await fetch(
+          `${baseUrl}/models/${opts?.model || model}:streamGenerateContent?alt=sse&key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", ...(options.headers || {}) },
+            body: JSON.stringify(body),
+            signal: createFetchSignal(signal),
+          }
+        )
+      } catch (err) {
+        console.error("[argent] Provider fetch error:", (err instanceof Error ? err.message : String(err)).replace(/key=[^&\s]+/, "key=REDACTED"))
+        yield { type: "error", error: "Cannot reach the API. Check your network and try again." }
+        return
+      }
 
       if (!res.ok) {
-        yield { type: "error", error: `Gemini API error: ${res.status}` }
+        const responseBody = await res.text()
+        if (res.status === 429) {
+          yield { type: "error", error: "Rate limited (429). Wait a moment and try again." }
+        } else {
+          yield { type: "error", error: `Gemini API error (${res.status}): ${responseBody.slice(0, 200).replace(/\n/g, " ")}` }
+        }
         return
       }
 
       yield { type: "start" }
 
-      const reader = res.body!.getReader()
+      if (!res.body) {
+        yield { type: "error", error: "Response body is null" }
+        return
+      }
+
+      const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
       let fullText = ""
       let inputTokens = 0
       let outputTokens = 0
       let finishReason = ""
+      let toolCallCounter = 0
 
       try {
         while (true) {
@@ -136,6 +186,7 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
           if (done) break
 
           buffer += decoder.decode(value, { stream: true })
+          if (buffer.length > 1024 * 1024) { yield { type: "error", error: "Stream data too large" }; return }
           const lines = buffer.split("\n")
           buffer = lines.pop() || ""
 
@@ -159,7 +210,7 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
                   yield {
                     type: "tool_call",
                     toolCall: {
-                      id: `call_0`,
+                      id: `call_${toolCallCounter++}`,
                       name: part.functionCall.name || "unknown",
                       arguments: JSON.stringify(part.functionCall.args || {}),
                     },
@@ -181,11 +232,12 @@ export function createGeminiProvider(options: ProviderOptions): LLMProvider {
             }
           }
         }
+      yield { type: "stop", stopReason: finishReason, usage: { inputTokens, outputTokens } }
       } catch (err) {
         yield { type: "error", error: err instanceof Error ? err.message : String(err) }
+      } finally {
+        reader.releaseLock()
       }
-
-      yield { type: "stop", stopReason: finishReason, usage: { inputTokens, outputTokens } }
     },
   }
 }

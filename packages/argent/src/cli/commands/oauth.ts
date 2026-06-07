@@ -1,4 +1,4 @@
-import type { OAuthManager, OAuthStatus } from "@argent/integrations"
+import type { OAuthManager } from "@argent/integrations"
 import { PROVIDERS, getProvider } from "@argent/integrations"
 
 export async function oauthCommand(
@@ -20,7 +20,7 @@ export async function oauthCommand(
     if (!providerId) return "Usage: /oauth revoke <provider>"
     const provider = getProvider(providerId)
     if (!provider) return `Provider "${providerId}" not found.`
-    const revoked = oauthManager.revoke(providerId)
+    const revoked = await oauthManager.revoke(providerId)
     if (revoked) return `OAuth token revoked for ${provider.name}.`
     return `No active token for ${provider.name}.`
   }

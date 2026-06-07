@@ -1,8 +1,6 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from "fs"
-import { join, relative } from "path"
-import { execSync } from "child_process"
+import { existsSync, readFileSync, writeFileSync, readdirSync } from "fs"
+import { join } from "path"
 
 export function initCommand(engine: ArgentEngine): string {
   const lines: string[] = []

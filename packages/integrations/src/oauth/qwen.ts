@@ -12,7 +12,7 @@ function openBrowser(url: string): void {
   const platform = process.platform
   const cmd =
     platform === "darwin" ? `open "${url}"` :
-    platform === "win32" ? `start "${url}"` :
+    platform === "win32" ? `start "" "${url}"` :
     `xdg-open "${url}"`
   exec(cmd, () => {})
 }
@@ -24,7 +24,6 @@ function sleep(ms: number): Promise<void> {
 async function requestUserCode(): Promise<{ userCode: string; deviceCode: string; verificationUri: string }> {
   const body = new URLSearchParams({
     client_id: CLIENT_ID,
-    scope: "openai.public",
   })
 
   const res = await fetch("https://chat.qwen.ai/api/v1/oauth2/device/code", {
@@ -111,7 +110,7 @@ export async function startQwenOAuth(authStore: AuthStore): Promise<OAuthToken> 
   openBrowser(loginUrl)
 
   const token = await pollForToken(deviceCode)
-  authStore.setToken("qwen", token)
+  await authStore.setToken("qwen", token)
 
   console.log("Qwen authentication successful!")
   return token

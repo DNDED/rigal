@@ -12,7 +12,7 @@ function openBrowser(url: string): void {
   const platform = process.platform
   const cmd =
     platform === "darwin" ? `open "${url}"` :
-    platform === "win32" ? `start "${url}"` :
+    platform === "win32" ? `start "" "${url}"` :
     `xdg-open "${url}"`
   exec(cmd, () => {})
 }
@@ -111,7 +111,7 @@ export async function startNousOAuth(authStore: AuthStore): Promise<OAuthToken> 
   openBrowser(loginUrl)
 
   const token = await pollForToken(deviceCode)
-  authStore.setToken("nous", token)
+  await authStore.setToken("nous", token)
 
   console.log("Nous Research authentication successful!")
   return token

@@ -1,7 +1,6 @@
 import type { ArgentEngine } from "../engine.js"
-import { theme } from "../../ui/theme.js"
-import { existsSync, readFileSync, statSync, readdirSync } from "fs"
-import { join, relative } from "path"
+import { existsSync, readFileSync, statSync } from "fs"
+import { join } from "path"
 
 export function explainCommand(args: string[], engine: ArgentEngine): string {
   const lines: string[] = []
