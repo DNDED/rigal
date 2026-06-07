@@ -1,5 +1,6 @@
 node_modules/
 dist/
+!packages/argent/dist/main.js
 coverage/
 .env
 .env.local

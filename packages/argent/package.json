@@ -16,8 +16,7 @@
     "dev": "bun run --watch src/cli/main.tsx",
     "build": "bun run script/build.ts",
     "build:binary": "bun run script/build.ts --compile",
-    "start": "bun dist/main.js",
-    "prepack": "bun run build"
+    "start": "bun dist/main.js"
   },
   "keywords": [
     "ai",
