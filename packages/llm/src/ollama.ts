@@ -93,10 +93,16 @@ export function createOllamaProvider(options: ProviderOptions): LLMProvider {
 
       if (!res.ok) {
         const responseBody = await res.text()
-        if (res.status === 429) {
-          yield { type: "error", error: "Rate limited (429). Wait a moment and try again." }
+        if (res.status === 401) {
+          yield { type: "error", error: "Invalid API key. Check your key at the provider's dashboard or try a different provider." }
+        } else if (res.status === 403) {
+          yield { type: "error", error: "API key doesn't have access. Check your account permissions." }
+        } else if (res.status === 429) {
+          yield { type: "error", error: "Rate limited. Wait a moment and try again." }
+        } else if (res.status === 404) {
+          yield { type: "error", error: "Model not found. Check the model name or try a different one." }
         } else {
-          yield { type: "error", error: `Ollama API error (${res.status}): ${responseBody.slice(0, 200).replace(/\n/g, " ")}` }
+          yield { type: "error", error: `API error (${res.status}): ${responseBody.slice(0, 200).replace(/\n/g, " ")}` }
         }
         return
       }

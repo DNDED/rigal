@@ -80,17 +80,17 @@ export class ArgentEngine {
   }
 
   private autoDetectProvider(): void {
-    const existing = this.config.getProvider()
-    if (existing && existing.type !== "none") {
-      this.currentProviderDescriptor = this.resolveDescriptor(existing)
-      return
-    }
-
     const detected = detectProviderFromEnv(PROVIDERS)
     if (detected) {
       this.currentProviderDescriptor = detected.provider
       this.config.setProvider(this.buildProviderConfig(detected.provider, detected.credentials))
       this.onEvent({ type: "status", tokensIn: 0, tokensOut: 0, latency: 0 })
+      return
+    }
+
+    const existing = this.config.getProvider()
+    if (existing && existing.type !== "none") {
+      this.currentProviderDescriptor = this.resolveDescriptor(existing)
     }
   }
 

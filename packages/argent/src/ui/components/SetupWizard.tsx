@@ -5,6 +5,43 @@ import { listProviders } from "@argent/integrations"
 import type { ProviderDescriptor } from "@argent/integrations"
 import { theme, multiGradient } from "../../ui/theme.js"
 
+const API_KEY_URLS: Record<string, string> = {
+  anthropic: "https://console.anthropic.com/settings/keys",
+  openai: "https://platform.openai.com/api-keys",
+  openrouter: "https://openrouter.ai/keys",
+  gemini: "https://aistudio.google.com/app/apikey",
+  deepseek: "https://platform.deepseek.com/api_keys",
+  groq: "https://console.groq.com/keys",
+  mistral: "https://console.mistral.ai/api-keys/",
+  together: "https://api.together.xyz/settings/api-keys",
+  fireworks: "https://fireworks.ai/account/api-keys",
+  perplexity: "https://www.perplexity.ai/settings/api",
+  cerebras: "https://cloud.cerebras.ai/",
+  sambanova: "https://cloud.sambanova.ai/",
+  xai: "https://console.x.ai/",
+  cohere: "https://dashboard.cohere.com/api-keys",
+  ai21: "https://studio.ai21.com/account/api-key",
+  replicate: "https://replicate.com/account/api-tokens",
+  huggingface: "https://huggingface.co/settings/tokens",
+  cloudflare: "https://dash.cloudflare.com/profile/api-tokens",
+  github: "https://github.com/settings/tokens",
+  warp: "https://app.warp.dev/",
+  nous: "https://api.nousresearch.com/",
+  alibaba: "https://dashscope.console.aliyun.com/",
+  kimi: "https://platform.moonshot.cn/",
+  zhipu: "https://open.bigmodel.cn/",
+  novita: "https://novita.ai/",
+  xiaomi: "https://platform.xiaomi.com/",
+  nvidia: "https://build.nvidia.com/",
+  minimax: "https://api.minimax.chat/",
+  stepfun: "https://platform.stepfun.com/",
+  kilocode: "https://kilocode.ai/",
+  gmi: "https://console.gmicloud.ai/",
+  arcee: "https://arcee.ai/",
+  ollama: "https://ollama.com/",
+  custom: "https://github.com/DNDED/argent",
+}
+
 function isFreeGroup(p: ProviderDescriptor) {
   return p.authType === "none" || p.authType === "oauth"
 }
@@ -372,6 +409,15 @@ export function SetupWizard({ onComplete, onSkip }: SetupWizardProps) {
               </Text>
             </Text>
           </Box>
+
+          {API_KEY_URLS[selectedProvider.id] && (
+            <Box marginBottom={1} paddingLeft={2}>
+              <Text color={theme.colors.success}>
+                {theme.chars.bullet} Get your key:{" "}
+                <Text color={theme.colors.textBright}>{API_KEY_URLS[selectedProvider.id]}</Text>
+              </Text>
+            </Box>
+          )}
 
           <Box marginBottom={1} paddingLeft={2}>
             <Text color={theme.colors.textMuted}>
