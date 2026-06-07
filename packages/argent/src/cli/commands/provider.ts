@@ -15,18 +15,14 @@ export function providerCommand(
   if (!isNaN(num) && num >= 1 && num <= providers.length) {
     const selected = providers[num - 1]
     if (!selected) return `Invalid selection: ${num}`
-    const envVar = selected.envVars[0]
-    const envHint = envVar ? `\n  1. Set your API key: export ${envVar}=your-key` : ""
-    return `SELECT:${selected.id}${envHint ? `|HINT:${envHint}` : ""}`
+    return `SELECT:${selected.id}`
   }
 
   const match = providers.find(
     (p) => p.id === input || p.name.toLowerCase() === input.toLowerCase()
   )
   if (match) {
-    const envVar = match.envVars[0]
-    const envHint = envVar ? `\n  1. Set your API key: export ${envVar}=your-key` : ""
-    return `SELECT:${match.id}${envHint ? `|HINT:${envHint}` : ""}`
+    return `SELECT:${match.id}`
   }
 
   return `Provider "${input}" not found. Use /provider to see the list.`

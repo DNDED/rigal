@@ -198,28 +198,23 @@ export function App() {
   const handleSetupComplete = useCallback(
     (providerId: string, apiKey?: string) => {
       if (!engine) return
-      const success = engine.setProvider(providerId, apiKey)
-      if (success) {
-        const info = engine.getProviderInfo()
-        setProvider(info.name)
-        setModel(info.model)
-        if (engine.hasProvider()) {
-          setAppState("ready")
-          setStatusMessage(`Provider set to ${info.name}`)
-          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 3000)
-        } else {
-          const desc = engine.getCurrentProviderDescriptor()
-          if (desc?.authType === "oauth") {
-            setStatusMessage(`OAuth authentication required. Use /oauth ${providerId} to authenticate.`)
-            if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-            statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 6000)
-          }
-        }
-      } else {
-        setStatusMessage(`Failed to set provider ${providerId}`)
+      engine.setProvider(providerId, apiKey)
+      const info = engine.getProviderInfo()
+      setProvider(info.name)
+      setModel(info.model)
+      if (engine.hasProvider()) {
+        setAppState("ready")
+        setStatusMessage(`Provider set to ${info.name}. Next: /model to pick a model.`)
         if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-        statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 3000)
+        statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 6000)
+      } else {
+        const desc = engine.getCurrentProviderDescriptor()
+        if (desc?.authType === "oauth") {
+          setStatusMessage(`OAuth authentication required. Use /oauth ${providerId} to authenticate.`)
+          if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+          statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 6000)
+        }
+        setAppState("ready")
       }
     },
     [engine]
@@ -248,14 +243,8 @@ export function App() {
           return
         }
         if (result.message?.startsWith("SETUP_PROVIDER:")) {
-          const providerMsg = result.message.slice("SETUP_PROVIDER:".length)
-          const [providerId, hint] = providerMsg.split("|HINT:")
-          handleSetupComplete(providerId || "")
-          if (hint) {
-            setStatusMessage(`Provider set! ${hint}\nNext: /model to pick a model`)
-            if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-            statusTimerRef.current = setTimeout(() => { setStatusMessage(""); statusTimerRef.current = null }, 6000)
-          }
+          const providerId = result.message.slice("SETUP_PROVIDER:".length)
+          handleSetupComplete(providerId)
           return
         }
         if (result.message?.startsWith("CUSTOM_COMMAND:")) {
@@ -313,7 +302,7 @@ export function App() {
   )
 
   const handleSetupMenuSelect = useCallback(
-    (item: "provider" | "model" | "reasoning" | "apikey" | "agent") => {
+    (item: "provider" | "model" | "reasoning" | "agent") => {
       setSetupMenuOpen(false)
       if (item === "provider") {
         handleSubmit("/provider")
@@ -321,8 +310,6 @@ export function App() {
         handleSubmit("/model")
       } else if (item === "reasoning") {
         handleSubmit("/reasoning")
-      } else if (item === "apikey") {
-        handleSubmit("/setup")
       } else if (item === "agent") {
         handleSubmit("/agent")
       }
@@ -418,7 +405,6 @@ export function App() {
           provider: provider,
           model: model,
           reasoning: engine?.getReasoning() || "medium",
-          apiKey: engine?.hasApiKey() || false,
           agent: agentName,
         }}
       />

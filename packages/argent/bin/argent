@@ -8,7 +8,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, "..", "dist", "main.js")
 
 if (!existsSync(distPath)) {
-  console.error("argent: dist/main.js not found. Run `bun run build` first.")
+  console.error("argent: dist/main.js not found. The package may not be built.")
+  console.error("  Run 'npm install' in the argent directory, then try again.")
   process.exit(1)
 }
 

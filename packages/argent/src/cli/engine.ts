@@ -255,6 +255,18 @@ export class ArgentEngine {
     return !!(pc.apiKey && pc.apiKey.length > 0)
   }
 
+  hasProviderSelected(): boolean {
+    const pc = this.config.getProvider()
+    if (!pc) return false
+    return !!(pc.type && pc.type !== "none")
+  }
+
+  getProviderEnvVar(): string | null {
+    const desc = this.currentProviderDescriptor
+    if (!desc) return null
+    return desc.envVars[0] || null
+  }
+
   getAgent(): Agent | undefined {
     if (!this.sessionId) return this.config.getAgent("build")
     const session = this.sessions.get(this.sessionId)
@@ -292,7 +304,14 @@ export class ArgentEngine {
     if (!this.provider) {
       this.initProvider()
       if (!this.provider || !this.hasProvider()) {
-        this.onEvent({ type: "error", message: "No AI provider configured. Type /setup to choose a provider. Run a local model with Ollama for free (no API key needed): curl -fsSL https://ollama.com/install.sh | sh" })
+        if (this.hasProviderSelected()) {
+          const envVar = this.getProviderEnvVar()
+          const name = this.currentProviderDescriptor?.name || "This provider"
+          const envCmd = process.platform === "win32" ? `$env:${envVar} = "your-key"` : `export ${envVar}=your-key`
+          this.onEvent({ type: "error", message: `${name} requires an API key.\nSet in environment: ${envCmd}\nThen restart argent.` })
+        } else {
+          this.onEvent({ type: "error", message: "No AI provider configured. Run /setup to choose a provider." })
+        }
         this.isRunning = false
         return
       }

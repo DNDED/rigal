@@ -109,7 +109,7 @@ export function WelcomeScreen({ width = 80, engine }: { width?: number; engine?:
         </Box>
       )}
 
-      {engine && !engine.hasProvider() && (
+      {engine && !engine.hasProviderSelected() && (
         <Box marginTop={2} flexDirection="column" alignItems="center">
           <Text color={theme.colors.warning}>
             {theme.icons.warning} No provider configured

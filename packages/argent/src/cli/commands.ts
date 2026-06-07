@@ -123,7 +123,7 @@ export class CommandHandler {
         if (result.startsWith("REASONING_SELECT:")) {
           const level = result.slice("REASONING_SELECT:".length) as "low" | "medium" | "high" | "max"
           this.engine.setReasoning(level)
-          return { handled: true, message: `Reasoning level set to: ${level}` }
+          return { handled: true, message: `Reasoning level set to: ${level}\n\nSetup complete. Start coding!` }
         }
         return { handled: true, message: result }
       }

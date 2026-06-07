@@ -5,12 +5,11 @@ import { theme } from "../theme.js"
 interface SetupMenuProps {
   isOpen: boolean
   onClose: () => void
-  onSelect: (item: "provider" | "model" | "reasoning" | "apikey" | "agent") => void
+  onSelect: (item: "provider" | "model" | "reasoning" | "agent") => void
   currentValues: {
     provider: string
     model: string
     reasoning: "low" | "medium" | "high" | "max"
-    apiKey: boolean
     agent: string
   }
 }
@@ -19,7 +18,6 @@ const MENU_ITEMS = [
   { id: "provider" as const, label: "Provider", getValue: (v: SetupMenuProps["currentValues"]) => v.provider },
   { id: "model" as const, label: "Model", getValue: (v: SetupMenuProps["currentValues"]) => v.model },
   { id: "reasoning" as const, label: "Reasoning", getValue: (v: SetupMenuProps["currentValues"]) => v.reasoning },
-  { id: "apikey" as const, label: "API Key", getValue: (v: SetupMenuProps["currentValues"]) => v.apiKey ? "•••••••• (set)" : "not set" },
   { id: "agent" as const, label: "Agent", getValue: (v: SetupMenuProps["currentValues"]) => v.agent },
 ]
 
@@ -61,8 +59,6 @@ export function SetupMenu({ isOpen, onClose, onSelect, currentValues }: SetupMen
   )
 
   if (!isOpen) return null
-
-  const width = 52
 
   return (
     <Box
